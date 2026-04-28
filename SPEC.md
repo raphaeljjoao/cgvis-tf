@@ -6,20 +6,22 @@
 
 ## Integrantes da dupla
 
-- **Aluno 1 - Nome**: <mark>`<preencher>`</mark>
-- **Aluno 1 - Cartão UFRGS**: <mark>`<preencher>`</mark>
+- **Aluno 1 - Nome**: <mark>`Gustavo Pranstete Jacome de Souza`</mark>
+- **Aluno 1 - Cartão UFRGS**: <mark>`334042`</mark>
 
-- **Aluno 2 - Nome**: <mark>`<preencher>`</mark>
-- **Aluno 2 - Cartão UFRGS**: <mark>`<preencher>`</mark>
+- **Aluno 2 - Nome**: <mark>`João Raphael Fontoura Dorneles`</mark>
+- **Aluno 2 - Cartão UFRGS**: <mark>`333315`</mark>
 
 ## Detalhes do que será implementado
 
-- **Título do trabalho**: <mark>`<preencher>`</mark>
-- **Parágrafo curto descrevendo o que será implementado**: <mark>`<preencher>`</mark>
+- **Título do trabalho**: <mark>`Temple Run`</mark>
+- **Parágrafo curto descrevendo o que será implementado**: <mark>`recriação parcial de uma cena tridimensional inspirada no jogo Temple Run`</mark>
 
 ## Especificação visual
 
 ### Vídeo - Link
+
+https://youtube.com/shorts/P-4b4qQZpWM?si=604MwuEvbc4_EizX
 
 > [!IMPORTANT]
 > - Coloque aqui um link para um vídeo que mostre a aplicação gráfica
@@ -43,8 +45,8 @@
 >   será a base de comparação para avaliar se o seu trabalho final
 >   conseguiu ou não reproduzir a referência.
 
-- **Timestamp inicial**: <mark>`<preencher>`</mark>
-- **Timestamp final**: <mark>`<preencher>`</mark>
+- **Timestamp inicial**: <mark>`00:00:01`</mark>
+- **Timestamp final**: <mark>`00:00:05`</mark>
 
 ### Imagens
 
