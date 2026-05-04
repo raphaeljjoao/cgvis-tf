@@ -17,6 +17,8 @@
 - **Título do trabalho**: <mark>`Temple Run`</mark>
 - **Parágrafo curto descrevendo o que será implementado**: <mark>`recriação parcial de uma cena tridimensional inspirada no jogo Temple Run`</mark>
 
+> Comentário Professor: faltou as imagens e toda descrição textual abaixo.
+
 ## Especificação visual
 
 ### Vídeo - Link
