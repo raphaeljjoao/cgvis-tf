@@ -61,31 +61,31 @@ https://youtube.com/shorts/P-4b4qQZpWM?si=604MwuEvbc4_EizX
 Para cada um dos requisitos abaixo (detalhados no [Enunciado do Trabalho final - Moodle](https://moodle.ufrgs.br/mod/assign/view.php?id=6018620)), escreva um parágrafo **curto** explicando como este requisito será atendido, apontando itens específicos do vídeo/imagens que você incluiu acima que atendem estes requisitos.
 
 ### Malhas poligonais complexas
-<mark>`<preencher>`</mark>
+<mark>`Uso de implementações distintas para implementação do personagem, árvores, obstáculos (troncos, fogo), moedas e o chão.`</mark>
 
 ### Transformações geométricas controladas pelo usuário
-<mark>`<preencher>`</mark>
+<mark>`O jogador poderá mudar de faixa, saltar e abaixar com o personagem, desviando de objetos.`</mark>
 
 ### Diferentes tipos de câmeras
-<mark>`<preencher>`</mark>
+<mark>`Implementação de câmera em terceira pessoa durante o jogo e uma câmera livre para observar o cenário.`</mark>
 
 ### Instâncias de objetos
-<mark>`<preencher>`</mark>
+<mark>`O mesmo modelo de objeto (moedas e obstáculos) será reutilizado diversas vezes em diferentes locais durante o trajeto.`</mark>
 
 ### Testes de intersecção
-<mark>`<preencher>`</mark>
+<mark>`A colisão do personagem com um objeto causa a derrota e a colisão de um personagem com uma moeda gera pontos.`</mark>
 
 ### Modelos de Iluminação em todos os objetos
-<mark>`<preencher>`</mark>
+<mark>`Possuirá luz ambiente para iluminação global e luz pontual para elementos como fogo e moedas.`</mark>
 
 ### Mapeamento de texturas em todos os objetos
-<mark>`<preencher>`</mark>
+<mark>`Uso na pedra do chão, madeira dos troncos, ouro da moeda e na roupa da personagem.`</mark>
 
 ### Movimentação com curva Bézier cúbica
-<mark>`<preencher>`</mark>
+<mark>`Salto do personagem.`</mark>
 
 ### Animações baseadas no tempo ($\Delta t$)
-<mark>`<preencher>`</mark>
+<mark>`Será aplicado na velocidade da corrida, salto, troca de faixa e rotação das moedas.`</mark>
 
 ## Limitações esperadas
 
@@ -96,4 +96,4 @@ Para cada um dos requisitos abaixo (detalhados no [Enunciado do Trabalho final -
 > - Para cada item, **explique por que** não será implementado ou por
 >   que será implementado parcialmente.
 
-<mark>`<preencher>`</mark>
+<mark>`Será utilizado trajeto finito para manter a consistência e qualidade do trabalho.`</mark>
