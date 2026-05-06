@@ -96,4 +96,4 @@ Para cada um dos requisitos abaixo (detalhados no [Enunciado do Trabalho final -
 >   que será implementado parcialmente.
 
 - Será utilizado trajeto finito para manter a consistência e qualidade do trabalho.
-- Elementos de interface do jogo original, como contador de moedas, indicadores de distância (por exemplo, 250m, 500m, 1000m) e outros itens fixos na tela, não serão implementados. O foco do trabalho será apenas na construção e visualização do ambiente 3D.
+- A maioria dos elementos de interface do jogo original, como indicadores de distância (por exemplo, 250m, 500m, 1000m) e outros itens fixos na tela, não serão implementados. O foco do trabalho será apenas na construção e visualização do ambiente 3D. Apenas o contador de moedas será mostrado na tela.
