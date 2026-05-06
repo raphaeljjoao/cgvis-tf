@@ -21,8 +21,6 @@
 
 ### Vídeo - Link
 
-https://youtube.com/shorts/P-4b4qQZpWM?si=604MwuEvbc4_EizX
-
 > [!IMPORTANT]
 > - Coloque aqui um link para um vídeo que mostre a aplicação gráfica
 >   de referência que você vai implementar. **Sua implementação deverá
@@ -36,7 +34,7 @@ https://youtube.com/shorts/P-4b4qQZpWM?si=604MwuEvbc4_EizX
 >   do próprio repositório. Mas, garanta que qualquer um tenha
 >   permissão de acesso ao vídeo através deste link.
 
-<mark>`<preencher>`</mark>
+https://www.youtube.com/watch?v=Z6dcc1kEwfI
 
 ### Vídeo - Timestamp
 
@@ -45,8 +43,8 @@ https://youtube.com/shorts/P-4b4qQZpWM?si=604MwuEvbc4_EizX
 >   será a base de comparação para avaliar se o seu trabalho final
 >   conseguiu ou não reproduzir a referência.
 
-- **Timestamp inicial**: <mark>`00:00:01`</mark>
-- **Timestamp final**: <mark>`00:00:05`</mark>
+- **Timestamp inicial**: <mark>`00:00:04`</mark>
+- **Timestamp final**: <mark>`00:00:31`</mark>
 
 ### Imagens
 
@@ -54,7 +52,8 @@ https://youtube.com/shorts/P-4b4qQZpWM?si=604MwuEvbc4_EizX
 > - Coloque aqui **três imagens** capturadas do vídeo acima, que você
 >   irá usar como ilustração para as explicações que vêm abaixo.
 
-<mark>`<preencher>`</mark>
+<mark>![Run](./images/run.png) ![Jump](./images/jump.png) ![Coins](./images/coins.png)</mark>
+
 
 ## Especificação textual
 
@@ -96,4 +95,5 @@ Para cada um dos requisitos abaixo (detalhados no [Enunciado do Trabalho final -
 > - Para cada item, **explique por que** não será implementado ou por
 >   que será implementado parcialmente.
 
-<mark>`Será utilizado trajeto finito para manter a consistência e qualidade do trabalho.`</mark>
+- Será utilizado trajeto finito para manter a consistência e qualidade do trabalho.
+- Elementos de interface do jogo original, como contador de moedas, indicadores de distância (por exemplo, 250m, 500m, 1000m) e outros itens fixos na tela, não serão implementados. O foco do trabalho será apenas na construção e visualização do ambiente 3D.
