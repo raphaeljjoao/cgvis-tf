@@ -37,6 +37,7 @@
 
 // Headers da biblioteca GLM: criação de matrizes e vetores.
 #include <glm/mat4x4.hpp>
+#include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
@@ -216,6 +217,22 @@ const int   TRACK_NUM_TILES   = 50;
 const float TRACK_TILE_LENGTH = 4.0f;  // tamanho de cada tile no eixo Z (mundo)
 const float TRACK_TILE_WIDTH  = 6.0f;  // largura do corredor no eixo X (3 lanes)
 
+// ===================================================================
+// TEMPLE RUN — Estado do player e modo de câmera.
+// ===================================================================
+// Posição atual do player no mundo. A câmera em terceira pessoa segue este ponto.
+// Será atualizada nas próximas etapas (movimento automático, troca de lanes, salto).
+glm::vec3 g_PlayerPos = glm::vec3(0.0f, 0.0f, 0.0f);
+
+// Toggle entre câmera 3ª pessoa (false, default) e câmera livre (true).
+// Hoje só a 3ª pessoa está ativa; a câmera livre será habilitada no Passo 12.
+bool g_UseFreeCamera = false;
+
+// Offset da câmera em terceira pessoa em relação ao player (atrás e acima).
+const glm::vec3 CAMERA_TPP_OFFSET = glm::vec3(0.0f, 4.0f, 8.0f);
+// Para onde a câmera olha, relativo ao player (um pouco à frente e à altura do peito).
+const glm::vec3 CAMERA_TPP_LOOKAT_OFFSET = glm::vec3(0.0f, 1.0f, -3.0f);
+
 // Variáveis que controlam rotação do antebraço
 float g_ForearmAngleZ = 0.0f;
 float g_ForearmAngleX = 0.0f;
@@ -372,23 +389,40 @@ int main(int argc, char* argv[])
         float x = r*cos(g_CameraPhi)*sin(g_CameraTheta);
 
         // ===================================================================
-        // TEMPLE RUN — Câmera orbital provisória.
-        // O ponto observado (lookat) é o centro do corredor para que possamos
-        // visualizar todo o track. Nas próximas etapas, este lookat passará a
-        // seguir o player (câmera em terceira pessoa).
+        // TEMPLE RUN — Seleção do tipo de câmera.
+        //   - g_UseFreeCamera = false (default): câmera em TERCEIRA PESSOA,
+        //     posicionada atrás e acima do player, olhando para frente (-Z).
+        //   - g_UseFreeCamera = true: câmera LIVRE (orbital) ao redor do
+        //     centro do corredor, controlada pelo mouse. Será habilitada via
+        //     toggle no Passo 12.
         // ===================================================================
-        glm::vec4 track_center = glm::vec4(
-            0.0f,
-            0.0f,
-            -((TRACK_NUM_TILES - 1) * TRACK_TILE_LENGTH) * 0.5f,
-            1.0f
-        );
+        glm::vec4 camera_position_c;
+        glm::vec4 camera_lookat_l;
 
-        // Posição da câmera = lookat + offset esférico (controlado pelo mouse)
-        glm::vec4 camera_position_c  = track_center + glm::vec4(x,y,z,0.0f); // Ponto "c", centro da câmera
-        glm::vec4 camera_lookat_l    = track_center; // Ponto "l", para onde a câmera (look-at) estará sempre olhando
-        glm::vec4 camera_view_vector = camera_lookat_l - camera_position_c; // Vetor "view", sentido para onde a câmera está virada
-        glm::vec4 camera_up_vector   = glm::vec4(0.0f,1.0f,0.0f,0.0f); // Vetor "up" fixado para apontar para o "céu" (eito Y global)
+        if (g_UseFreeCamera)
+        {
+            // Câmera livre: orbital, controlada pelo mouse, olhando para o
+            // centro do corredor (útil para inspecionar o cenário).
+            glm::vec4 track_center = glm::vec4(
+                0.0f,
+                0.0f,
+                -((TRACK_NUM_TILES - 1) * TRACK_TILE_LENGTH) * 0.5f,
+                1.0f
+            );
+            camera_position_c = track_center + glm::vec4(x, y, z, 0.0f);
+            camera_lookat_l   = track_center;
+        }
+        else
+        {
+            // Câmera em terceira pessoa: segue o player.
+            glm::vec3 cam_pos    = g_PlayerPos + CAMERA_TPP_OFFSET;
+            glm::vec3 cam_lookat = g_PlayerPos + CAMERA_TPP_LOOKAT_OFFSET;
+            camera_position_c = glm::vec4(cam_pos.x,    cam_pos.y,    cam_pos.z,    1.0f);
+            camera_lookat_l   = glm::vec4(cam_lookat.x, cam_lookat.y, cam_lookat.z, 1.0f);
+        }
+
+        glm::vec4 camera_view_vector = camera_lookat_l - camera_position_c; // Vetor "view"
+        glm::vec4 camera_up_vector   = glm::vec4(0.0f,1.0f,0.0f,0.0f);      // Vetor "up" (eixo Y global)
 
         // Computamos a matriz "View" utilizando os parâmetros da câmera para
         // definir o sistema de coordenadas da câmera.  Veja slides 2-14, 184-190 e 236-242 do documento Aula_08_Sistemas_de_Coordenadas.pdf.
