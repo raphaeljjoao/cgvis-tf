@@ -195,9 +195,26 @@ bool g_MiddleMouseButtonPressed = false; // Análogo para botão do meio do mous
 // usuário através do mouse (veja função CursorPosCallback()). A posição
 // efetiva da câmera é calculada dentro da função main(), dentro do loop de
 // renderização.
-float g_CameraTheta = 0.0f; // Ângulo no plano ZX em relação ao eixo Z
-float g_CameraPhi = 0.0f;   // Ângulo em relação ao eixo Y
-float g_CameraDistance = 3.5f; // Distância da câmera para a origem
+float g_CameraTheta = 0.0f;   // Ângulo no plano ZX em relação ao eixo Z
+float g_CameraPhi = 0.5f;     // Ângulo em relação ao eixo Y (olhar levemente de cima)
+float g_CameraDistance = 25.0f; // Distância da câmera para o ponto de lookat
+
+// ===================================================================
+// TEMPLE RUN — Constantes do corredor (track) finito.
+// ===================================================================
+// Identificadores de objetos (devem coincidir com os defines do shader_fragment.glsl)
+#define OBJ_SPHERE 0
+#define OBJ_BUNNY  1
+#define OBJ_PLANE  2
+
+// Geometria do corredor:
+//   - O corredor corre no sentido -Z (jogador irá correr "para frente" = Z negativo).
+//   - Cada tile é uma instância do plane.obj (que originalmente é 2x2 no plano XZ),
+//     escalada para TRACK_TILE_WIDTH x TRACK_TILE_LENGTH.
+//   - O corredor tem TRACK_NUM_TILES tiles enfileirados em Z.
+const int   TRACK_NUM_TILES   = 50;
+const float TRACK_TILE_LENGTH = 4.0f;  // tamanho de cada tile no eixo Z (mundo)
+const float TRACK_TILE_WIDTH  = 6.0f;  // largura do corredor no eixo X (3 lanes)
 
 // Variáveis que controlam rotação do antebraço
 float g_ForearmAngleZ = 0.0f;
@@ -303,10 +320,15 @@ int main(int argc, char* argv[])
     LoadTextureImage("../../data/rocky_terrain_02_diff_1k.jpg"); // TextureImage1
 
     // ===================================================================
-    // TEMPLE RUN — Cena demo removida.
-    // Os modelos do jogo (player, track, obstáculos, moedas, etc.) serão
-    // carregados aqui nas próximas etapas da implementação.
+    // TEMPLE RUN — Carregamento dos modelos do jogo.
     // ===================================================================
+
+    // Carregamos o plano (data/plane.obj) que será reutilizado como tile do
+    // corredor (track) através de instanciamento. O nome do shape no .obj é
+    // "the_plane" e o plano original tem dimensões 2x2 no plano XZ.
+    ObjModel planemodel("../../data/plane.obj");
+    ComputeNormals(&planemodel);
+    BuildTrianglesAndAddToVirtualScene(&planemodel);
 
     // Inicializamos o código para renderização de texto.
     TextRendering_Init();
@@ -349,10 +371,22 @@ int main(int argc, char* argv[])
         float z = r*cos(g_CameraPhi)*cos(g_CameraTheta);
         float x = r*cos(g_CameraPhi)*sin(g_CameraTheta);
 
-        // Abaixo definimos as varáveis que efetivamente definem a câmera virtual.
-        // Veja slides 195-227 e 229-234 do documento Aula_08_Sistemas_de_Coordenadas.pdf.
-        glm::vec4 camera_position_c  = glm::vec4(x,y,z,1.0f); // Ponto "c", centro da câmera
-        glm::vec4 camera_lookat_l    = glm::vec4(0.0f,0.0f,0.0f,1.0f); // Ponto "l", para onde a câmera (look-at) estará sempre olhando
+        // ===================================================================
+        // TEMPLE RUN — Câmera orbital provisória.
+        // O ponto observado (lookat) é o centro do corredor para que possamos
+        // visualizar todo o track. Nas próximas etapas, este lookat passará a
+        // seguir o player (câmera em terceira pessoa).
+        // ===================================================================
+        glm::vec4 track_center = glm::vec4(
+            0.0f,
+            0.0f,
+            -((TRACK_NUM_TILES - 1) * TRACK_TILE_LENGTH) * 0.5f,
+            1.0f
+        );
+
+        // Posição da câmera = lookat + offset esférico (controlado pelo mouse)
+        glm::vec4 camera_position_c  = track_center + glm::vec4(x,y,z,0.0f); // Ponto "c", centro da câmera
+        glm::vec4 camera_lookat_l    = track_center; // Ponto "l", para onde a câmera (look-at) estará sempre olhando
         glm::vec4 camera_view_vector = camera_lookat_l - camera_position_c; // Vetor "view", sentido para onde a câmera está virada
         glm::vec4 camera_up_vector   = glm::vec4(0.0f,1.0f,0.0f,0.0f); // Vetor "up" fixado para apontar para o "céu" (eito Y global)
 
@@ -365,8 +399,8 @@ int main(int argc, char* argv[])
 
         // Note que, no sistema de coordenadas da câmera, os planos near e far
         // estão no sentido negativo! Veja slides 176-204 do documento Aula_09_Projecoes.pdf.
-        float nearplane = -0.1f;  // Posição do "near plane"
-        float farplane  = -10.0f; // Posição do "far plane"
+        float nearplane = -0.1f;   // Posição do "near plane"
+        float farplane  = -400.0f; // Posição do "far plane" (afastado para enxergar todo o corredor)
 
         if (g_UsePerspectiveProjection)
         {
@@ -398,13 +432,24 @@ int main(int argc, char* argv[])
         glUniformMatrix4fv(g_projection_uniform , 1 , GL_FALSE , glm::value_ptr(projection));
 
         // ===================================================================
-        // TEMPLE RUN — Desenho de objetos da cena.
-        // Os IDs dos objetos (PLAYER, TRACK, COIN, OBSTACLE, ...) e seus
-        // respectivos DrawVirtualObject(...) serão adicionados nas próximas
-        // etapas da implementação.
+        // TEMPLE RUN — Desenho do corredor (track) finito.
+        // Cada tile é uma INSTÂNCIA do mesmo "the_plane" carregado uma única
+        // vez no início, transladada e escalada para a posição do tile.
+        // O plane.obj original tem dimensões 2x2 no plano XZ; aplicamos:
+        //   - Scale(TRACK_TILE_WIDTH/2, 1, TRACK_TILE_LENGTH/2)
+        //     => tile com TRACK_TILE_WIDTH x TRACK_TILE_LENGTH em XZ.
+        //   - Translate(0, 0, -i * TRACK_TILE_LENGTH)
+        //     => tiles enfileirados no sentido -Z.
         // ===================================================================
-
-        (void)model; // evita warning de variável não utilizada por enquanto
+        for (int i = 0; i < TRACK_NUM_TILES; ++i)
+        {
+            float tile_z = -i * TRACK_TILE_LENGTH;
+            model = Matrix_Translate(0.0f, 0.0f, tile_z)
+                  * Matrix_Scale(TRACK_TILE_WIDTH * 0.5f, 1.0f, TRACK_TILE_LENGTH * 0.5f);
+            glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+            glUniform1i(g_object_id_uniform, OBJ_PLANE);
+            DrawVirtualObject("the_plane");
+        }
 
         // Imprimimos na tela os ângulos de Euler que controlam a rotação do
         // terceiro cubo.
