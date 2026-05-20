@@ -245,6 +245,16 @@ const float PLAYER_SPEED = 8.0f;
 // (Δt) e fazer animações independentes do framerate.
 double g_LastFrameTime = 0.0;
 
+// ===================================================================
+// TEMPLE RUN — Sistema de lanes (3 faixas).
+// ===================================================================
+// O corredor tem 3 lanes igualmente espaçadas em X. Lane = -1 (esquerda),
+// 0 (centro), +1 (direita). A posição alvo em X é g_PlayerLane * LANE_WIDTH.
+// O player desliza suavemente entre lanes com velocidade LANE_CHANGE_SPEED.
+const float LANE_WIDTH         = 2.0f;   // distância entre lanes adjacentes (X)
+const float LANE_CHANGE_SPEED  = 12.0f;  // velocidade da troca de lane (X/s)
+int   g_PlayerLane             = 0;      // -1 = esquerda, 0 = centro, +1 = direita
+
 // Variáveis que controlam rotação do antebraço
 float g_ForearmAngleZ = 0.0f;
 float g_ForearmAngleX = 0.0f;
@@ -411,6 +421,24 @@ int main(int argc, char* argv[])
         if (g_PlayerPos.z < track_end)
         {
             g_PlayerPos.z = 0.0f;
+        }
+
+        // Troca de lane (X): interpolação linear suave em direção à posição
+        // alvo determinada por g_PlayerLane. A velocidade da troca é
+        // LANE_CHANGE_SPEED unidades/s, também escalada por delta_time para
+        // independência do framerate.
+        {
+            float target_x = g_PlayerLane * LANE_WIDTH;
+            float dx = target_x - g_PlayerPos.x;
+            float step = LANE_CHANGE_SPEED * delta_time;
+            if (fabs(dx) <= step)
+            {
+                g_PlayerPos.x = target_x; // chegou na lane
+            }
+            else
+            {
+                g_PlayerPos.x += (dx > 0.0f ? step : -step);
+            }
         }
 
         // Definimos a cor do "fundo" do framebuffer como branco.  Tal cor é
@@ -1404,6 +1432,24 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mod)
         LoadShadersFromFiles();
         fprintf(stdout,"Shaders recarregados!\n");
         fflush(stdout);
+    }
+
+    // ===================================================================
+    // TEMPLE RUN — Controle de troca de lanes (faixas).
+    // Tecla A ou seta esquerda  => move o player uma lane para a esquerda.
+    // Tecla D ou seta direita   => move o player uma lane para a direita.
+    // O índice g_PlayerLane fica restrito ao intervalo [-1, +1] (3 lanes).
+    // A transição visual é suavizada no loop principal usando delta time.
+    // ===================================================================
+    if ((key == GLFW_KEY_A || key == GLFW_KEY_LEFT) && action == GLFW_PRESS)
+    {
+        if (g_PlayerLane > -1)
+            g_PlayerLane -= 1;
+    }
+    if ((key == GLFW_KEY_D || key == GLFW_KEY_RIGHT) && action == GLFW_PRESS)
+    {
+        if (g_PlayerLane < 1)
+            g_PlayerLane += 1;
     }
 }
 
