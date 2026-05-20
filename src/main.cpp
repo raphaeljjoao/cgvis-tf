@@ -255,6 +255,26 @@ const float LANE_WIDTH         = 2.0f;   // distância entre lanes adjacentes (X
 const float LANE_CHANGE_SPEED  = 12.0f;  // velocidade da troca de lane (X/s)
 int   g_PlayerLane             = 0;      // -1 = esquerda, 0 = centro, +1 = direita
 
+// ===================================================================
+// TEMPLE RUN — Salto do player via curva de Bézier cúbica.
+// ===================================================================
+// O salto é parametrizado por t ∈ [0, 1] ao longo de JUMP_DURATION segundos.
+// A altura Y do player segue a fórmula da Bézier cúbica:
+//   B(t) = (1-t)^3 * P0 + 3(1-t)^2 t * P1 + 3(1-t) t^2 * P2 + t^3 * P3
+// Pontos de controle escolhidos para um arco simétrico (P0/P3 no chão,
+// P1/P2 altos puxando a curva para cima).
+const float JUMP_DURATION = 0.7f;  // duração total do salto (segundos)
+const float JUMP_P0 = 0.0f;
+const float JUMP_P1 = 4.0f;
+const float JUMP_P2 = 4.0f;
+const float JUMP_P3 = 0.0f;
+
+bool   g_PlayerJumping = false; // true enquanto o player está no ar
+double g_JumpStartTime = 0.0;   // momento (segundos) em que o salto começou
+
+// Avalia uma curva de Bézier cúbica em t ∈ [0,1]. Definida abaixo de main().
+float BezierCubic(float t, float p0, float p1, float p2, float p3);
+
 // Variáveis que controlam rotação do antebraço
 float g_ForearmAngleZ = 0.0f;
 float g_ForearmAngleX = 0.0f;
@@ -438,6 +458,23 @@ int main(int argc, char* argv[])
             else
             {
                 g_PlayerPos.x += (dx > 0.0f ? step : -step);
+            }
+        }
+
+        // Salto (Y): se o player está saltando, calculamos sua altura
+        // segundo a curva de Bézier cúbica em função do tempo decorrido.
+        // Quando t atinge 1.0, o salto termina e o player retorna ao chão.
+        if (g_PlayerJumping)
+        {
+            float t = (float)((current_time - g_JumpStartTime) / JUMP_DURATION);
+            if (t >= 1.0f)
+            {
+                g_PlayerJumping = false;
+                g_PlayerPos.y   = 0.0f;
+            }
+            else
+            {
+                g_PlayerPos.y = BezierCubic(t, JUMP_P0, JUMP_P1, JUMP_P2, JUMP_P3);
             }
         }
 
@@ -1451,6 +1488,39 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mod)
         if (g_PlayerLane < 1)
             g_PlayerLane += 1;
     }
+
+    // ===================================================================
+    // TEMPLE RUN — Salto do player.
+    // Tecla W ou seta para cima  => inicia o salto (curva de Bézier cúbica).
+    // Não é possível pular novamente enquanto já está no ar (single jump).
+    // A trajetória vertical é calculada no loop principal usando BezierCubic.
+    // ===================================================================
+    if ((key == GLFW_KEY_W || key == GLFW_KEY_UP) && action == GLFW_PRESS)
+    {
+        if (!g_PlayerJumping)
+        {
+            g_PlayerJumping = true;
+            g_JumpStartTime = glfwGetTime();
+        }
+    }
+}
+
+// ===================================================================
+// TEMPLE RUN — Avalia uma curva de Bézier cúbica em t ∈ [0, 1].
+// Fórmula:
+//   B(t) = (1-t)^3 P0 + 3(1-t)^2 t P1 + 3(1-t) t^2 P2 + t^3 P3
+// Esta função é usada para animar a altura Y do player durante o salto,
+// atendendo ao requisito do SPEC.md: "Movimentação com curva Bézier cúbica".
+// ===================================================================
+float BezierCubic(float t, float p0, float p1, float p2, float p3)
+{
+    float u  = 1.0f - t;
+    float uu = u * u;
+    float tt = t * t;
+    return uu * u * p0
+         + 3.0f * uu * t  * p1
+         + 3.0f * u  * tt * p2
+         + tt * t  * p3;
 }
 
 // Definimos o callback para impressão de erros da GLFW no terminal
