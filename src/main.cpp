@@ -233,6 +233,11 @@ const glm::vec3 CAMERA_TPP_OFFSET = glm::vec3(0.0f, 4.0f, 8.0f);
 // Para onde a câmera olha, relativo ao player (um pouco à frente e à altura do peito).
 const glm::vec3 CAMERA_TPP_LOOKAT_OFFSET = glm::vec3(0.0f, 1.0f, -3.0f);
 
+// Escala aplicada ao bunny (placeholder do player). Ajustada empiricamente
+// para que o coelho ocupe cerca de uma lane de largura, ficando proporcional
+// ao corredor (largura total = 6 unidades, 3 lanes = 2 unidades por lane).
+const float PLAYER_SCALE = 1.0f;
+
 // Variáveis que controlam rotação do antebraço
 float g_ForearmAngleZ = 0.0f;
 float g_ForearmAngleX = 0.0f;
@@ -346,6 +351,14 @@ int main(int argc, char* argv[])
     ObjModel planemodel("../../data/plane.obj");
     ComputeNormals(&planemodel);
     BuildTrianglesAndAddToVirtualScene(&planemodel);
+
+    // Carregamos o bunny (data/bunny.obj) como PLACEHOLDER do personagem do
+    // Temple Run. O bunny aponta sua "frente" para o eixo -Z, o que casa com a
+    // direção da corrida no nosso corredor. Será substituído por um modelo de
+    // personagem real no Passo 13.
+    ObjModel bunnymodel("../../data/bunny.obj");
+    ComputeNormals(&bunnymodel);
+    BuildTrianglesAndAddToVirtualScene(&bunnymodel);
 
     // Inicializamos o código para renderização de texto.
     TextRendering_Init();
@@ -483,6 +496,29 @@ int main(int argc, char* argv[])
             glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
             glUniform1i(g_object_id_uniform, OBJ_PLANE);
             DrawVirtualObject("the_plane");
+        }
+
+        // ===================================================================
+        // TEMPLE RUN — Desenho do player (placeholder = bunny).
+        // O bunny é transladado para g_PlayerPos e escalado por PLAYER_SCALE.
+        // O bunny.obj tem sua "frente" no eixo -Z, alinhada com a direção da
+        // corrida. A textura aplicada é a "red_brick" via projeção planar XY
+        // (configurada no shader para object_id == BUNNY).
+        //
+        // Nota: a origem do bunny.obj fica no centro do modelo (não na base),
+        // então usamos a bounding box do modelo para subir o bunny e fazer com
+        // que sua base toque o chão (Y=0) em coordenadas de mundo.
+        // ===================================================================
+        {
+            float bunny_bbox_min_y = g_VirtualScene["the_bunny"].bbox_min.y;
+            float ground_offset_y = -bunny_bbox_min_y * PLAYER_SCALE;
+            model = Matrix_Translate(g_PlayerPos.x,
+                                     g_PlayerPos.y + ground_offset_y,
+                                     g_PlayerPos.z)
+                  * Matrix_Scale(PLAYER_SCALE, PLAYER_SCALE, PLAYER_SCALE);
+            glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+            glUniform1i(g_object_id_uniform, OBJ_BUNNY);
+            DrawVirtualObject("the_bunny");
         }
 
         // Imprimimos na tela os ângulos de Euler que controlam a rotação do
