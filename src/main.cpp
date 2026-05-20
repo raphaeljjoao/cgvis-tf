@@ -238,6 +238,13 @@ const glm::vec3 CAMERA_TPP_LOOKAT_OFFSET = glm::vec3(0.0f, 1.0f, -3.0f);
 // ao corredor (largura total = 6 unidades, 3 lanes = 2 unidades por lane).
 const float PLAYER_SCALE = 1.0f;
 
+// Velocidade da corrida do player no eixo -Z (unidades de mundo por segundo).
+const float PLAYER_SPEED = 8.0f;
+
+// Marca temporal do último frame, em segundos. Usada para calcular delta time
+// (Δt) e fazer animações independentes do framerate.
+double g_LastFrameTime = 0.0;
+
 // Variáveis que controlam rotação do antebraço
 float g_ForearmAngleZ = 0.0f;
 float g_ForearmAngleX = 0.0f;
@@ -371,10 +378,40 @@ int main(int argc, char* argv[])
     glCullFace(GL_BACK);
     glFrontFace(GL_CCW);
 
+    // Inicializa a marca temporal usada para o cálculo de delta time (Δt) na
+    // animação do player.
+    g_LastFrameTime = glfwGetTime();
+
     // Ficamos em um loop infinito, renderizando, até que o usuário feche a janela
     while (!glfwWindowShouldClose(window))
     {
         // Aqui executamos as operações de renderização
+
+        // ===================================================================
+        // TEMPLE RUN — Cálculo de delta time (Δt) e atualização do estado.
+        // ===================================================================
+        // Calcula o tempo decorrido (em segundos) desde o último frame.
+        // Usar delta time torna a animação independente do framerate: mesmo
+        // que a taxa de quadros varie, a velocidade percebida do player é
+        // constante (PLAYER_SPEED unidades por segundo).
+        double current_time = glfwGetTime();
+        float  delta_time   = (float)(current_time - g_LastFrameTime);
+        g_LastFrameTime     = current_time;
+
+        // Movimenta o player automaticamente para frente (-Z), simulando a
+        // corrida contínua característica do Temple Run.
+        g_PlayerPos.z -= PLAYER_SPEED * delta_time;
+
+        // Loop infinito do corredor (modo de testes — Opção A do plano).
+        // Quando o player passar do último tile, retornamos a Z=0 para que
+        // ele continue rodando dentro do trajeto finito sem travar a cena.
+        // Em uma versão mais polida, esta condição seria substituída por uma
+        // tela de "fim de jogo" (Passo 10).
+        const float track_end = -(TRACK_NUM_TILES - 1) * TRACK_TILE_LENGTH;
+        if (g_PlayerPos.z < track_end)
+        {
+            g_PlayerPos.z = 0.0f;
+        }
 
         // Definimos a cor do "fundo" do framebuffer como branco.  Tal cor é
         // definida como coeficientes RGBA: Red, Green, Blue, Alpha; isto é:
