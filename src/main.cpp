@@ -213,7 +213,7 @@ float g_CameraDistance = 25.0f; // Distância da câmera para o ponto de lookat
 //   - Cada tile é uma instância do plane.obj (que originalmente é 2x2 no plano XZ),
 //     escalada para TRACK_TILE_WIDTH x TRACK_TILE_LENGTH.
 //   - O corredor tem TRACK_NUM_TILES tiles enfileirados em Z.
-const int   TRACK_NUM_TILES   = 50;
+const int   TRACK_NUM_TILES   = 100;
 const float TRACK_TILE_LENGTH = 4.0f;  // tamanho de cada tile no eixo Z (mundo)
 const float TRACK_TILE_WIDTH  = 6.0f;  // largura do corredor no eixo X (3 lanes)
 
@@ -239,7 +239,7 @@ const glm::vec3 CAMERA_TPP_LOOKAT_OFFSET = glm::vec3(0.0f, 1.0f, -3.0f);
 const float PLAYER_SCALE = 1.0f;
 
 // Velocidade da corrida do player no eixo -Z (unidades de mundo por segundo).
-const float PLAYER_SPEED = 8.0f;
+const float PLAYER_SPEED = 10.0f;
 
 // Marca temporal do último frame, em segundos. Usada para calcular delta time
 // (Δt) e fazer animações independentes do framerate.
@@ -274,6 +274,50 @@ double g_JumpStartTime = 0.0;   // momento (segundos) em que o salto começou
 
 // Avalia uma curva de Bézier cúbica em t ∈ [0,1]. Definida abaixo de main().
 float BezierCubic(float t, float p0, float p1, float p2, float p3);
+
+// ===================================================================
+// TEMPLE RUN — Obstáculos instanciados ao longo do corredor.
+// ===================================================================
+// Cada obstáculo é uma INSTÂNCIA da mesma esfera (data/sphere.obj),
+// posicionada em uma das 3 lanes (-1, 0, +1) em uma coordenada Z fixa.
+// O conjunto é gerado uma única vez no startup com srand() determinístico
+// (seed fixa) para garantir reprodutibilidade nos testes.
+struct Obstacle
+{
+    int   lane;   // -1 (esq), 0 (centro), +1 (dir)
+    float z;      // posição em Z no mundo (negativa)
+    float scale;  // raio da esfera placeholder
+};
+
+std::vector<Obstacle> g_Obstacles;
+
+// Geração: primeiro obstáculo em Z = OBSTACLE_FIRST_Z; espaçados em Z por
+// OBSTACLE_SPACING_Z (mais denso => valor menor); raio = OBSTACLE_SCALE.
+const float OBSTACLE_FIRST_Z   = -10.0f;
+const float OBSTACLE_SPACING_Z = 10.0f;
+const float OBSTACLE_SCALE     = 0.8f;
+
+// ===================================================================
+// TEMPLE RUN — Moedas coletáveis instanciadas ao longo do corredor.
+// ===================================================================
+// Cada moeda é uma INSTÂNCIA da mesma esfera (data/sphere.obj), porém menor,
+// flutuando acima do chão e girando continuamente em Y. A coleta (marcação
+// collected=true e incremento de pontos) será implementada no Passo 10.
+struct Coin
+{
+    int   lane;       // -1, 0, +1
+    float z;          // posição Z fixa no mundo
+    bool  collected;  // true se já foi coletada
+};
+
+std::vector<Coin> g_Coins;
+int g_CoinScore = 0;  // pontuação de moedas coletadas (HUD no Passo 14)
+
+const float COIN_FIRST_Z   = -7.0f;   // primeira moeda a partir deste Z
+const float COIN_SPACING_Z = 6.0f;    // espaçamento entre moedas
+const float COIN_SCALE     = 0.3f;    // raio da esfera (menor que obstáculo)
+const float COIN_Y         = 1.2f;    // altura da moeda (flutuante)
+const float COIN_ROT_SPEED = 3.0f;    // velocidade angular (rad/s)
 
 // Variáveis que controlam rotação do antebraço
 float g_ForearmAngleZ = 0.0f;
@@ -396,6 +440,44 @@ int main(int argc, char* argv[])
     ObjModel bunnymodel("../../data/bunny.obj");
     ComputeNormals(&bunnymodel);
     BuildTrianglesAndAddToVirtualScene(&bunnymodel);
+
+    // Carregamos a esfera (data/sphere.obj) como PLACEHOLDER para os
+    // obstáculos (troncos, fogo, etc.) que o player precisa desviar.
+    // Será substituída por modelos reais no Passo 13. O nome do shape no
+    // .obj é "the_sphere".
+    ObjModel spheremodel("../../data/sphere.obj");
+    ComputeNormals(&spheremodel);
+    BuildTrianglesAndAddToVirtualScene(&spheremodel);
+
+    // ===================================================================
+    // TEMPLE RUN — Geração de obstáculos (uma única vez no startup).
+    // Distribuição DETERMINÍSTICA (seed fixa = 42) para repetibilidade nos testes.
+    // Obstáculos são espalhados desde Z = OBSTACLE_FIRST_Z, espaçados por
+    // OBSTACLE_SPACING_Z, cada um em uma lane (-1, 0, ou +1) sorteada.
+    // ===================================================================
+    srand(42);  // Seed fixa para geração determinística
+    const float track_end_startup = -(TRACK_NUM_TILES - 1) * TRACK_TILE_LENGTH;
+    for (float z = OBSTACLE_FIRST_Z; z > track_end_startup + 4.0f; z -= OBSTACLE_SPACING_Z)
+    {
+        Obstacle o;
+        o.lane  = (rand() % 3) - 1;  // -1, 0 ou +1
+        o.z     = z;
+        o.scale = OBSTACLE_SCALE;
+        g_Obstacles.push_back(o);
+    }
+
+    // ===================================================================
+    // TEMPLE RUN — Geração de moedas coletáveis (uma única vez no startup).
+    // Moedas intercaladas com obstáculos, em lanes aleatórias.
+    // ===================================================================
+    for (float cz = COIN_FIRST_Z; cz > track_end_startup + 4.0f; cz -= COIN_SPACING_Z)
+    {
+        Coin c;
+        c.lane      = (rand() % 3) - 1;
+        c.z         = cz;
+        c.collected = false;
+        g_Coins.push_back(c);
+    }
 
     // Inicializamos o código para renderização de texto.
     TextRendering_Init();
@@ -598,6 +680,48 @@ int main(int argc, char* argv[])
             glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
             glUniform1i(g_object_id_uniform, OBJ_PLANE);
             DrawVirtualObject("the_plane");
+        }
+
+        // ===================================================================
+        // TEMPLE RUN — Desenho dos obstáculos (esferas placeholder).
+        // Cada obstáculo é uma INSTÂNCIA do mesmo "the_sphere" carregado uma
+        // única vez no setup. Cada instância é transladada para sua posição
+        // (lane e Z) e escalada pelo fator OBSTACLE_SCALE.
+        // A esfera fica posicionada com base toque o chão (Y = scale).
+        // ===================================================================
+        for (const Obstacle& o : g_Obstacles)
+        {
+            float ox = o.lane * LANE_WIDTH;      // posição X baseada na lane
+            float oy = o.scale;                  // centro da esfera em Y
+            float oz = o.z;                      // posição Z (mundo)
+            model = Matrix_Translate(ox, oy, oz)
+                  * Matrix_Scale(o.scale, o.scale, o.scale);
+            glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+            glUniform1i(g_object_id_uniform, OBJ_SPHERE);
+            DrawVirtualObject("the_sphere");
+        }
+
+        // ===================================================================
+        // TEMPLE RUN — Desenho das moedas (esferas menores, flutuantes, girando).
+        // Cada moeda é uma INSTÂNCIA do mesmo "the_sphere", porém menor,
+        // posicionada em Y = COIN_Y e girando continuamente em torno de Y.
+        // A rotação contínua usa current_time * COIN_ROT_SPEED, atendendo ao
+        // requisito "Animações baseadas em Δt: rotação das moedas".
+        // Moedas com collected=true são puladas (não desenhadas).
+        // ===================================================================
+        {
+            float coin_angle = (float)current_time * COIN_ROT_SPEED;
+            for (const Coin& c : g_Coins)
+            {
+                if (c.collected) continue;
+                float cx = c.lane * LANE_WIDTH;
+                model = Matrix_Translate(cx, COIN_Y, c.z)
+                      * Matrix_Rotate_Y(coin_angle)
+                      * Matrix_Scale(COIN_SCALE, COIN_SCALE, COIN_SCALE);
+                glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+                glUniform1i(g_object_id_uniform, OBJ_SPHERE);
+                DrawVirtualObject("the_sphere");
+            }
         }
 
         // ===================================================================
