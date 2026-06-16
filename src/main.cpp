@@ -207,6 +207,7 @@ float g_CameraDistance = 25.0f; // Distância da câmera para o ponto de lookat
 #define OBJ_SPHERE 0
 #define OBJ_BUNNY  1
 #define OBJ_PLANE  2
+#define OBJ_COIN   3
 
 // Geometria do corredor:
 //   - O corredor corre no sentido -Z (jogador irá correr "para frente" = Z negativo).
@@ -276,18 +277,9 @@ double g_JumpStartTime = 0.0;   // momento (segundos) em que o salto começou
 float BezierCubic(float t, float p0, float p1, float p2, float p3);
 
 // ===================================================================
-// TEMPLE RUN — Obstáculos instanciados ao longo do corredor.
+// TEMPLE RUN — Obstáculos e moedas (structs definidas em collisions.h).
 // ===================================================================
-// Cada obstáculo é uma INSTÂNCIA da mesma esfera (data/sphere.obj),
-// posicionada em uma das 3 lanes (-1, 0, +1) em uma coordenada Z fixa.
-// O conjunto é gerado uma única vez no startup com srand() determinístico
-// (seed fixa) para garantir reprodutibilidade nos testes.
-struct Obstacle
-{
-    int   lane;   // -1 (esq), 0 (centro), +1 (dir)
-    float z;      // posição em Z no mundo (negativa)
-    float scale;  // raio da esfera placeholder
-};
+#include "collisions.h"
 
 std::vector<Obstacle> g_Obstacles;
 
@@ -296,19 +288,6 @@ std::vector<Obstacle> g_Obstacles;
 const float OBSTACLE_FIRST_Z   = -10.0f;
 const float OBSTACLE_SPACING_Z = 10.0f;
 const float OBSTACLE_SCALE     = 0.8f;
-
-// ===================================================================
-// TEMPLE RUN — Moedas coletáveis instanciadas ao longo do corredor.
-// ===================================================================
-// Cada moeda é uma INSTÂNCIA da mesma esfera (data/sphere.obj), porém menor,
-// flutuando acima do chão e girando continuamente em Y. A coleta (marcação
-// collected=true e incremento de pontos) será implementada no Passo 10.
-struct Coin
-{
-    int   lane;       // -1, 0, +1
-    float z;          // posição Z fixa no mundo
-    bool  collected;  // true se já foi coletada
-};
 
 std::vector<Coin> g_Coins;
 int g_CoinScore = 0;  // pontuação de moedas coletadas (HUD no Passo 14)
@@ -341,6 +320,7 @@ GLint g_projection_uniform;
 GLint g_object_id_uniform;
 GLint g_bbox_min_uniform;
 GLint g_bbox_max_uniform;
+GLint g_light_position_uniform; // Posição (world) da luz pontual que segue o player
 
 // Número de texturas carregadas pela função LoadTextureImage()
 GLuint g_NumLoadedTextures = 0;
@@ -560,6 +540,28 @@ int main(int argc, char* argv[])
             }
         }
 
+        // ===================================================================
+        // TEMPLE RUN — Testes de colisão (implementados em collisions.cpp).
+        // ===================================================================
+        // Colisão com obstáculos: derrota → reset do player para o início.
+        if (CheckObstacleCollision(g_PlayerPos, g_Obstacles, LANE_WIDTH, OBSTACLE_SCALE, 0.5f))
+        {
+            g_PlayerPos = glm::vec3(0.0f, 0.0f, 0.0f);
+            g_PlayerLane = 0;
+            g_PlayerJumping = false;
+            printf("COLISÃO! Player resetado. Score: %d moedas\n", g_CoinScore);
+            
+            // Reset do score e das moedas quando o jogador morre
+            g_CoinScore = 0;
+            for (Coin& c : g_Coins)
+            {
+                c.collected = false;
+            }
+        }
+
+        // Colisão com moedas: coleta → moeda desaparece, score incrementa.
+        g_CoinScore += CheckCoinCollision(g_PlayerPos, g_Coins, LANE_WIDTH, COIN_Y, COIN_SCALE, 0.8f);
+
         // Definimos a cor do "fundo" do framebuffer como branco.  Tal cor é
         // definida como coeficientes RGBA: Red, Green, Blue, Alpha; isto é:
         // Vermelho, Verde, Azul, Alpha (valor de transparência).
@@ -663,6 +665,23 @@ int main(int argc, char* argv[])
         glUniformMatrix4fv(g_projection_uniform , 1 , GL_FALSE , glm::value_ptr(projection));
 
         // ===================================================================
+        // TEMPLE RUN — Iluminação: posição da luz pontual ("tocha") que
+        // segue o player. Posicionada acima e ligeiramente atrás dele para
+        // produzir um halo de iluminação que viaja junto com a câmera.
+        // É enviada como uniform vec4 (w=1.0 indica posição, não direção).
+        // ===================================================================
+        {
+            glm::vec4 light_pos = glm::vec4(
+                g_PlayerPos.x,
+                g_PlayerPos.y + 3.0f,
+                g_PlayerPos.z + 2.0f,
+                1.0f
+            );
+            glUniform4f(g_light_position_uniform,
+                        light_pos.x, light_pos.y, light_pos.z, light_pos.w);
+        }
+
+        // ===================================================================
         // TEMPLE RUN — Desenho do corredor (track) finito.
         // Cada tile é uma INSTÂNCIA do mesmo "the_plane" carregado uma única
         // vez no início, transladada e escalada para a posição do tile.
@@ -719,7 +738,7 @@ int main(int argc, char* argv[])
                       * Matrix_Rotate_Y(coin_angle)
                       * Matrix_Scale(COIN_SCALE, COIN_SCALE, COIN_SCALE);
                 glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
-                glUniform1i(g_object_id_uniform, OBJ_SPHERE);
+                glUniform1i(g_object_id_uniform, OBJ_COIN);
                 DrawVirtualObject("the_sphere");
             }
         }
@@ -907,6 +926,7 @@ void LoadShadersFromFiles()
     g_object_id_uniform  = glGetUniformLocation(g_GpuProgramID, "object_id"); // Variável "object_id" em shader_fragment.glsl
     g_bbox_min_uniform   = glGetUniformLocation(g_GpuProgramID, "bbox_min");
     g_bbox_max_uniform   = glGetUniformLocation(g_GpuProgramID, "bbox_max");
+    g_light_position_uniform = glGetUniformLocation(g_GpuProgramID, "light_position_world");
 
     // Variáveis em "shader_fragment.glsl" para acesso das imagens de textura
     glUseProgram(g_GpuProgramID);
