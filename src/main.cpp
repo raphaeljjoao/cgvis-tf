@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 
 // Headers abaixo são específicos de C++
 #include <set>
@@ -211,13 +212,83 @@ float g_CameraDistance = 25.0f; // Distância da câmera para o ponto de lookat
 #define OBJ_COIN   3
 
 // Geometria do corredor:
-//   - O corredor corre no sentido -Z (jogador irá correr "para frente" = Z negativo).
 //   - Cada tile é uma instância do plane.obj (que originalmente é 2x2 no plano XZ),
 //     escalada para TRACK_TILE_WIDTH x TRACK_TILE_LENGTH.
-//   - O corredor tem TRACK_NUM_TILES tiles enfileirados em Z.
-const int   TRACK_NUM_TILES   = 100;
-const float TRACK_TILE_LENGTH = 4.0f;  // tamanho de cada tile no eixo Z (mundo)
-const float TRACK_TILE_WIDTH  = 6.0f;  // largura do corredor no eixo X (3 lanes)
+//   - O corredor agora é composto de SEGMENTOS, cada um com uma direção cardinal.
+const float TRACK_TILE_LENGTH = 4.0f;  // tamanho de cada tile no eixo "forward" do segmento
+const float TRACK_TILE_WIDTH  = 6.0f;  // largura do corredor (3 lanes)
+
+// ===================================================================
+// TEMPLE RUN — Sistema de direções cardinais e curvas 90°.
+// ===================================================================
+// Direções: 0 = -Z, 1 = +X, 2 = +Z, 3 = -X (sentido horário)
+#define DIR_NEG_Z 0
+#define DIR_POS_X 1
+#define DIR_POS_Z 2
+#define DIR_NEG_X 3
+
+glm::vec3 GetForwardVec(int dir)
+{
+    const glm::vec3 fwd[] = {
+        glm::vec3( 0, 0, -1),  // DIR_NEG_Z
+        glm::vec3( 1, 0,  0),  // DIR_POS_X
+        glm::vec3( 0, 0,  1),  // DIR_POS_Z
+        glm::vec3(-1, 0,  0),  // DIR_NEG_X
+    };
+    return fwd[dir & 3];
+}
+
+glm::vec3 GetRightVec(int dir)
+{
+    const glm::vec3 rgt[] = {
+        glm::vec3( 1, 0,  0),  // DIR_NEG_Z → right = +X
+        glm::vec3( 0, 0,  1),  // DIR_POS_X → right = +Z
+        glm::vec3(-1, 0,  0),  // DIR_POS_Z → right = -X
+        glm::vec3( 0, 0, -1),  // DIR_NEG_X → right = -Z
+    };
+    return rgt[dir & 3];
+}
+
+int TurnLeft(int dir)  { return (dir + 3) % 4; }
+int TurnRight(int dir) { return (dir + 1) % 4; }
+
+// Retorna o ângulo Y (em radianos) que o modelo do player deve ter para
+// encarar a direção dada (frente do bunny = -Z no model space).
+float GetDirectionAngleY(int dir)
+{
+    // DIR_NEG_Z=0°, DIR_POS_X=−90°, DIR_POS_Z=180°, DIR_NEG_X=90°
+    const float angles[] = { 0.0f, -1.5707963f, 3.1415926f, 1.5707963f };
+    return angles[dir & 3];
+}
+
+// Estrutura de um segmento de pista.
+struct TrackSegment
+{
+    glm::vec3 startPos;  // posição world do primeiro tile
+    int direction;       // DIR_NEG_Z / DIR_POS_X / DIR_POS_Z / DIR_NEG_X
+    int numTiles;        // quantidade de tiles neste trecho (15-50)
+    int turnAtEnd;       // -1 = próxima curva à esquerda, +1 = à direita
+};
+
+// Vetor de segmentos e índice do segmento atual do player.
+std::vector<TrackSegment> g_TrackSegments;
+int   g_CurrentSegment   = 0;
+float g_SegmentProgress  = 0.0f;  // distância percorrida dentro do segmento atual
+
+// Constantes de geração de segmentos
+const int   SEGMENT_MIN_TILES = 15;
+const int   SEGMENT_MAX_TILES = 50;
+const int   NUM_SEGMENTS_GEN  = 15;  // quantos segmentos gerar de uma vez
+
+// Gera os segmentos da pista a partir do segmento anterior (ou do zero).
+void GenerateTrackSegments();
+
+// ===================================================================
+// TEMPLE RUN — Sistema de curvas (turn mechanic).
+// ===================================================================
+const float TURN_WINDOW_DIST = 12.0f;  // distância (em unidades) do fim do segmento onde a curva é esperada
+bool  g_TurnPending  = false;  // player está na zona de curva
+bool  g_TurnExecuted = false;  // player apertou a tecla correta
 
 // ===================================================================
 // TEMPLE RUN — Estado do player e modo de câmera.
@@ -284,20 +355,17 @@ float BezierCubic(float t, float p0, float p1, float p2, float p3);
 
 std::vector<Obstacle> g_Obstacles;
 
-// Geração: primeiro obstáculo em Z = OBSTACLE_FIRST_Z; espaçados em Z por
-// OBSTACLE_SPACING_Z (mais denso => valor menor); raio = OBSTACLE_SCALE.
-const float OBSTACLE_FIRST_Z   = -10.0f;
-const float OBSTACLE_SPACING_Z = 10.0f;
-const float OBSTACLE_SCALE     = 2.8f;
+// Geração: espaçamento entre obstáculos/moedas dentro de cada segmento.
+const float OBSTACLE_SPACING  = 10.0f;  // distância entre obstáculos (ao longo do segmento)
+const float OBSTACLE_SCALE    = 2.8f;
 
 std::vector<Coin> g_Coins;
-int g_CoinScore = 0;  // pontuação de moedas coletadas (HUD no Passo 14)
+int g_CoinScore = 0;  // pontuação de moedas coletadas
 
-const float COIN_FIRST_Z   = -7.0f;   // primeira moeda a partir deste Z
-const float COIN_SPACING_Z = 6.0f;    // espaçamento entre moedas
-const float COIN_SCALE     = 0.05f;   // escala do modelo coin.obj (que tem ~18 unidades de altura)
-const float COIN_Y         = 1.2f;    // altura da moeda (flutuante)
-const float COIN_ROT_SPEED = 3.0f;    // velocidade angular (rad/s)
+const float COIN_SPACING = 6.0f;    // espaçamento entre moedas (ao longo do segmento)
+const float COIN_SCALE   = 0.05f;   // escala do modelo coin.obj
+const float COIN_Y       = 1.2f;    // altura da moeda (flutuante)
+const float COIN_ROT_SPEED = 3.0f;  // velocidade angular (rad/s)
 
 // Variáveis que controlam rotação do antebraço
 float g_ForearmAngleZ = 0.0f;
@@ -439,34 +507,10 @@ int main(int argc, char* argv[])
     BuildTrianglesAndAddToVirtualScene(&coinmodel);
 
     // ===================================================================
-    // TEMPLE RUN — Geração de obstáculos (uma única vez no startup).
-    // Distribuição DETERMINÍSTICA (seed fixa = 42) para repetibilidade nos testes.
-    // Obstáculos são espalhados desde Z = OBSTACLE_FIRST_Z, espaçados por
-    // OBSTACLE_SPACING_Z, cada um em uma lane (-1, 0, ou +1) sorteada.
+    // TEMPLE RUN — Geração dos segmentos da pista e dos objetos (moedas/obstáculos).
     // ===================================================================
     srand(42);  // Seed fixa para geração determinística
-    const float track_end_startup = -(TRACK_NUM_TILES - 1) * TRACK_TILE_LENGTH;
-    for (float z = OBSTACLE_FIRST_Z; z > track_end_startup + 4.0f; z -= OBSTACLE_SPACING_Z)
-    {
-        Obstacle o;
-        o.lane  = (rand() % 3) - 1;  // -1, 0 ou +1
-        o.z     = z;
-        o.scale = OBSTACLE_SCALE;
-        g_Obstacles.push_back(o);
-    }
-
-    // ===================================================================
-    // TEMPLE RUN — Geração de moedas coletáveis (uma única vez no startup).
-    // Moedas intercaladas com obstáculos, em lanes aleatórias.
-    // ===================================================================
-    for (float cz = COIN_FIRST_Z; cz > track_end_startup + 4.0f; cz -= COIN_SPACING_Z)
-    {
-        Coin c;
-        c.lane      = (rand() % 3) - 1;
-        c.z         = cz;
-        c.collected = false;
-        g_Coins.push_back(c);
-    }
+    GenerateTrackSegments();
 
     // Inicializamos o código para renderização de texto.
     TextRendering_Init();
@@ -491,50 +535,92 @@ int main(int argc, char* argv[])
         // ===================================================================
         // TEMPLE RUN — Cálculo de delta time (Δt) e atualização do estado.
         // ===================================================================
-        // Calcula o tempo decorrido (em segundos) desde o último frame.
-        // Usar delta time torna a animação independente do framerate: mesmo
-        // que a taxa de quadros varie, a velocidade percebida do player é
-        // constante (PLAYER_SPEED unidades por segundo).
         double current_time = glfwGetTime();
         float  delta_time   = (float)(current_time - g_LastFrameTime);
         g_LastFrameTime     = current_time;
 
-        // Movimenta o player automaticamente para frente (-Z), simulando a
-        // corrida contínua característica do Temple Run.
-        g_PlayerPos.z -= PLAYER_SPEED * delta_time;
+        // Referência ao segmento atual
+        TrackSegment& curSeg = g_TrackSegments[g_CurrentSegment];
+        glm::vec3 fwd = GetForwardVec(curSeg.direction);
+        glm::vec3 rgt = GetRightVec(curSeg.direction);
+        float segLength = curSeg.numTiles * TRACK_TILE_LENGTH;
 
-        // Loop infinito do corredor (modo de testes — Opção A do plano).
-        // Quando o player passar do último tile, retornamos a Z=0 para que
-        // ele continue rodando dentro do trajeto finito sem travar a cena.
-        // Em uma versão mais polida, esta condição seria substituída por uma
-        // tela de "fim de jogo" (Passo 10).
-        const float track_end = -(TRACK_NUM_TILES - 1) * TRACK_TILE_LENGTH;
-        if (g_PlayerPos.z < track_end)
+        // Movimenta o player automaticamente na direção do segmento atual.
+        g_SegmentProgress += PLAYER_SPEED * delta_time;
+
+        // ===================================================================
+        // TEMPLE RUN — Turn mechanic: zona de curva e transição de segmento.
+        // ===================================================================
+        float distToEnd = segLength - g_SegmentProgress;
+
+        if (distToEnd <= TURN_WINDOW_DIST && !g_TurnExecuted)
         {
-            g_PlayerPos.z = 0.0f;
+            g_TurnPending = true;
         }
 
-        // Troca de lane (X): interpolação linear suave em direção à posição
-        // alvo determinada por g_PlayerLane. A velocidade da troca é
-        // LANE_CHANGE_SPEED unidades/s, também escalada por delta_time para
-        // independência do framerate.
+        // Se ultrapassou o fim do segmento
+        if (g_SegmentProgress >= segLength)
         {
-            float target_x = g_PlayerLane * LANE_WIDTH;
-            float dx = target_x - g_PlayerPos.x;
-            float step = LANE_CHANGE_SPEED * delta_time;
-            if (fabs(dx) <= step)
+            if (!g_TurnExecuted)
             {
-                g_PlayerPos.x = target_x; // chegou na lane
+                // GAME OVER — não virou a tempo!
+                printf("GAME OVER! Não virou a tempo. Score: %d moedas\n", g_CoinScore);
+                g_PlayerPos = glm::vec3(0.0f, 0.0f, 0.0f);
+                g_PlayerLane = 0;
+                g_PlayerJumping = false;
+                g_CoinScore = 0;
+                srand((unsigned)time(NULL));
+                GenerateTrackSegments();
+                curSeg = g_TrackSegments[g_CurrentSegment];
+                fwd = GetForwardVec(curSeg.direction);
+                rgt = GetRightVec(curSeg.direction);
+                segLength = curSeg.numTiles * TRACK_TILE_LENGTH;
             }
             else
             {
-                g_PlayerPos.x += (dx > 0.0f ? step : -step);
+                // Transição para o próximo segmento
+                g_SegmentProgress -= segLength;
+                g_CurrentSegment++;
+                g_TurnPending  = false;
+                g_TurnExecuted = false;
+
+                if (g_CurrentSegment >= (int)g_TrackSegments.size())
+                {
+                    // Gerar mais segmentos (regenerar tudo por simplicidade)
+                    srand((unsigned)time(NULL));
+                    GenerateTrackSegments();
+                }
+                curSeg = g_TrackSegments[g_CurrentSegment];
+                fwd = GetForwardVec(curSeg.direction);
+                rgt = GetRightVec(curSeg.direction);
+                segLength = curSeg.numTiles * TRACK_TILE_LENGTH;
             }
         }
 
-        // Salto (Y): se o player está saltando, calculamos sua altura
-        // segundo a curva de Bézier cúbica em função do tempo decorrido.
-        // Quando t atinge 1.0, o salto termina e o player retorna ao chão.
+        // Posição central do player ao longo do segmento (sem offset de lane)
+        glm::vec3 centerPos = curSeg.startPos + fwd * g_SegmentProgress;
+
+        // Troca de lane: interpolação suave na direção perpendicular ao segmento.
+        {
+            glm::vec3 targetPos = centerPos + rgt * (g_PlayerLane * LANE_WIDTH);
+            float dx = targetPos.x - g_PlayerPos.x;
+            float dz = targetPos.z - g_PlayerPos.z;
+            float dist = sqrtf(dx * dx + dz * dz);
+            float step = LANE_CHANGE_SPEED * delta_time;
+            if (dist <= step)
+            {
+                g_PlayerPos.x = targetPos.x;
+                g_PlayerPos.z = targetPos.z;
+            }
+            else
+            {
+                float inv = step / dist;
+                g_PlayerPos.x += dx * inv;
+                g_PlayerPos.z += dz * inv;
+            }
+        }
+
+        // Salto (Y): curva de Bézier cúbica
         if (g_PlayerJumping)
         {
             float t = (float)((current_time - g_JumpStartTime) / JUMP_DURATION);
@@ -550,22 +636,17 @@ int main(int argc, char* argv[])
         }
 
         // ===================================================================
-        // TEMPLE RUN — Testes de colisão (implementados em collisions.cpp).
+        // TEMPLE RUN — Testes de colisão (usando posições world dos objetos).
         // ===================================================================
-        // Colisão com obstáculos: derrota → reset do player para o início.
         if (CheckObstacleCollision(g_PlayerPos, g_Obstacles, LANE_WIDTH, OBSTACLE_SCALE/4, 0.5f))
         {
+            printf("COLISÃO! Player resetado. Score: %d moedas\n", g_CoinScore);
             g_PlayerPos = glm::vec3(0.0f, 0.0f, 0.0f);
             g_PlayerLane = 0;
             g_PlayerJumping = false;
-            printf("COLISÃO! Player resetado. Score: %d moedas\n", g_CoinScore);
-            
-            // Reset do score e das moedas quando o jogador morre
             g_CoinScore = 0;
-            for (Coin& c : g_Coins)
-            {
-                c.collected = false;
-            }
+            srand((unsigned)time(NULL));
+            GenerateTrackSegments();
         }
 
         // Colisão com moedas: coleta → moeda desaparece, score incrementa.
@@ -625,9 +706,10 @@ int main(int argc, char* argv[])
         }
         else
         {
-            // Câmera em terceira pessoa: segue o player.
-            glm::vec3 cam_pos    = g_PlayerPos + CAMERA_TPP_OFFSET;
-            glm::vec3 cam_lookat = g_PlayerPos + CAMERA_TPP_LOOKAT_OFFSET;
+            // Câmera em terceira pessoa: segue o player na direção do segmento.
+            glm::vec3 backVec = -GetForwardVec(g_TrackSegments[g_CurrentSegment].direction);
+            glm::vec3 cam_pos    = g_PlayerPos + backVec * 8.0f + glm::vec3(0.0f, 4.0f, 0.0f);
+            glm::vec3 cam_lookat = g_PlayerPos + GetForwardVec(g_TrackSegments[g_CurrentSegment].direction) * 3.0f + glm::vec3(0.0f, 1.0f, 0.0f);
             camera_position_c = glm::vec4(cam_pos.x,    cam_pos.y,    cam_pos.z,    1.0f);
             camera_lookat_l   = glm::vec4(cam_lookat.x, cam_lookat.y, cam_lookat.z, 1.0f);
         }
@@ -683,10 +765,11 @@ int main(int argc, char* argv[])
         // É enviada como uniform vec4 (w=1.0 indica posição, não direção).
         // ===================================================================
         {
+            glm::vec3 lightOffset = -GetForwardVec(g_TrackSegments[g_CurrentSegment].direction) * 2.0f;
             glm::vec4 light_pos = glm::vec4(
-                g_PlayerPos.x,
+                g_PlayerPos.x + lightOffset.x,
                 g_PlayerPos.y + 3.0f,
-                g_PlayerPos.z + 2.0f,
+                g_PlayerPos.z + lightOffset.z,
                 1.0f
             );
             glUniform4f(g_light_position_uniform,
@@ -694,38 +777,31 @@ int main(int argc, char* argv[])
         }
 
         // ===================================================================
-        // TEMPLE RUN — Desenho do corredor (track) finito.
-        // Cada tile é uma INSTÂNCIA do mesmo "the_plane" carregado uma única
-        // vez no início, transladada e escalada para a posição do tile.
-        // O plane.obj original tem dimensões 2x2 no plano XZ; aplicamos:
-        //   - Scale(TRACK_TILE_WIDTH/2, 1, TRACK_TILE_LENGTH/2)
-        //     => tile com TRACK_TILE_WIDTH x TRACK_TILE_LENGTH em XZ.
-        //   - Translate(0, 0, -i * TRACK_TILE_LENGTH)
-        //     => tiles enfileirados no sentido -Z.
+        // TEMPLE RUN — Desenho do corredor por segmentos.
+        // Cada segmento tem sua direção; os tiles são rotacionados conforme.
         // ===================================================================
-        for (int i = 0; i < TRACK_NUM_TILES; ++i)
+        for (const TrackSegment& seg : g_TrackSegments)
         {
-            float tile_z = -i * TRACK_TILE_LENGTH;
-            model = Matrix_Translate(0.0f, 0.0f, tile_z)
-                  * Matrix_Scale(TRACK_TILE_WIDTH * 0.5f, 1.0f, TRACK_TILE_LENGTH * 0.5f);
-            glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
-            glUniform1i(g_object_id_uniform, OBJ_PLANE);
-            DrawVirtualObject("the_plane");
+            glm::vec3 segFwd = GetForwardVec(seg.direction);
+            float rotY = GetDirectionAngleY(seg.direction);
+            for (int i = 0; i < seg.numTiles; ++i)
+            {
+                glm::vec3 tilePos = seg.startPos + segFwd * ((float)i * TRACK_TILE_LENGTH);
+                model = Matrix_Translate(tilePos.x, 0.0f, tilePos.z)
+                      * Matrix_Rotate_Y(rotY)
+                      * Matrix_Scale(TRACK_TILE_WIDTH * 0.5f, 1.0f, TRACK_TILE_LENGTH * 0.5f);
+                glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+                glUniform1i(g_object_id_uniform, OBJ_PLANE);
+                DrawVirtualObject("the_plane");
+            }
         }
 
         // ===================================================================
-        // TEMPLE RUN — Desenho dos obstáculos (esferas placeholder).
-        // Cada obstáculo é uma INSTÂNCIA do mesmo "the_sphere" carregado uma
-        // única vez no setup. Cada instância é transladada para sua posição
-        // (lane e Z) e escalada pelo fator OBSTACLE_SCALE.
-        // A esfera fica posicionada com base toque o chão (Y = scale).
+        // TEMPLE RUN — Desenho dos obstáculos (usando worldPos).
         // ===================================================================
         for (const Obstacle& o : g_Obstacles)
         {
-            float ox = o.lane * LANE_WIDTH;      // posição X baseada na lane
-            float oy = o.scale/10;                  // centro da esfera em Y
-            float oz = o.z;                      // posição Z (mundo)
-            model = Matrix_Translate(ox, oy, oz)
+            model = Matrix_Translate(o.worldPos.x, o.worldPos.y, o.worldPos.z)
                   * Matrix_Scale(o.scale, o.scale, o.scale);
             glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
             glUniform1i(g_object_id_uniform, OBJ_SPHERE);
@@ -733,20 +809,14 @@ int main(int argc, char* argv[])
         }
 
         // ===================================================================
-        // TEMPLE RUN — Desenho das moedas (esferas menores, flutuantes, girando).
-        // Cada moeda é uma INSTÂNCIA do mesmo "the_sphere", porém menor,
-        // posicionada em Y = COIN_Y e girando continuamente em torno de Y.
-        // A rotação contínua usa current_time * COIN_ROT_SPEED, atendendo ao
-        // requisito "Animações baseadas em Δt: rotação das moedas".
-        // Moedas com collected=true são puladas (não desenhadas).
+        // TEMPLE RUN — Desenho das moedas (usando worldPos, girando).
         // ===================================================================
         {
             float coin_angle = (float)current_time * COIN_ROT_SPEED;
             for (const Coin& c : g_Coins)
             {
                 if (c.collected) continue;
-                float cx = c.lane * LANE_WIDTH;
-                model = Matrix_Translate(cx, COIN_Y, c.z)
+                model = Matrix_Translate(c.worldPos.x, c.worldPos.y, c.worldPos.z)
                       * Matrix_Rotate_Y(coin_angle)
                       * Matrix_Scale(COIN_SCALE, COIN_SCALE, COIN_SCALE);
                 glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
@@ -756,22 +826,16 @@ int main(int argc, char* argv[])
         }
 
         // ===================================================================
-        // TEMPLE RUN — Desenho do player (placeholder = bunny).
-        // O bunny é transladado para g_PlayerPos e escalado por PLAYER_SCALE.
-        // O bunny.obj tem sua "frente" no eixo -Z, alinhada com a direção da
-        // corrida. A textura aplicada é a "red_brick" via projeção planar XY
-        // (configurada no shader para object_id == BUNNY).
-        //
-        // Nota: a origem do bunny.obj fica no centro do modelo (não na base),
-        // então usamos a bounding box do modelo para subir o bunny e fazer com
-        // que sua base toque o chão (Y=0) em coordenadas de mundo.
+        // TEMPLE RUN — Desenho do player (bunny), rotacionado na direção atual.
         // ===================================================================
         {
             float bunny_bbox_min_y = g_VirtualScene["the_bunny"].bbox_min.y;
             float ground_offset_y = -bunny_bbox_min_y * PLAYER_SCALE;
+            float playerRotY = GetDirectionAngleY(g_TrackSegments[g_CurrentSegment].direction);
             model = Matrix_Translate(g_PlayerPos.x,
                                      g_PlayerPos.y + ground_offset_y,
                                      g_PlayerPos.z)
+                  * Matrix_Rotate_Y(playerRotY)
                   * Matrix_Scale(PLAYER_SCALE, PLAYER_SCALE, PLAYER_SCALE);
             glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
             glUniform1i(g_object_id_uniform, OBJ_BUNNY);
@@ -1649,21 +1713,64 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mod)
     }
 
     // ===================================================================
-    // TEMPLE RUN — Controle de troca de lanes (faixas).
-    // Tecla A ou seta esquerda  => move o player uma lane para a esquerda.
-    // Tecla D ou seta direita   => move o player uma lane para a direita.
-    // O índice g_PlayerLane fica restrito ao intervalo [-1, +1] (3 lanes).
-    // A transição visual é suavizada no loop principal usando delta time.
+    // TEMPLE RUN — Controle de troca de lanes E sistema de curvas.
+    // Quando g_TurnPending = true: LEFT/RIGHT são comandos de curva.
+    // Caso contrário: LEFT/RIGHT fazem troca de lane como antes.
     // ===================================================================
     if ((key == GLFW_KEY_A || key == GLFW_KEY_LEFT) && action == GLFW_PRESS)
     {
-        if (g_PlayerLane > -1)
-            g_PlayerLane -= 1;
+        if (g_TurnPending && !g_TurnExecuted)
+        {
+            // Verificar se a curva é para a esquerda
+            TrackSegment& seg = g_TrackSegments[g_CurrentSegment];
+            if (seg.turnAtEnd == -1)
+            {
+                g_TurnExecuted = true;  // Acertou!
+            }
+            else
+            {
+                // Virou para o lado errado → GAME OVER
+                printf("GAME OVER! Virou para o lado errado. Score: %d moedas\n", g_CoinScore);
+                g_PlayerPos = glm::vec3(0.0f, 0.0f, 0.0f);
+                g_PlayerLane = 0;
+                g_PlayerJumping = false;
+                g_CoinScore = 0;
+                srand((unsigned)time(NULL));
+                GenerateTrackSegments();
+            }
+        }
+        else
+        {
+            if (g_PlayerLane > -1)
+                g_PlayerLane -= 1;
+        }
     }
     if ((key == GLFW_KEY_D || key == GLFW_KEY_RIGHT) && action == GLFW_PRESS)
     {
-        if (g_PlayerLane < 1)
-            g_PlayerLane += 1;
+        if (g_TurnPending && !g_TurnExecuted)
+        {
+            TrackSegment& seg = g_TrackSegments[g_CurrentSegment];
+            if (seg.turnAtEnd == +1)
+            {
+                g_TurnExecuted = true;  // Acertou!
+            }
+            else
+            {
+                // Virou para o lado errado → GAME OVER
+                printf("GAME OVER! Virou para o lado errado. Score: %d moedas\n", g_CoinScore);
+                g_PlayerPos = glm::vec3(0.0f, 0.0f, 0.0f);
+                g_PlayerLane = 0;
+                g_PlayerJumping = false;
+                g_CoinScore = 0;
+                srand((unsigned)time(NULL));
+                GenerateTrackSegments();
+            }
+        }
+        else
+        {
+            if (g_PlayerLane < 1)
+                g_PlayerLane += 1;
+        }
     }
 
     // ===================================================================
@@ -1698,6 +1805,71 @@ float BezierCubic(float t, float p0, float p1, float p2, float p3)
          + 3.0f * uu * t  * p1
          + 3.0f * u  * tt * p2
          + tt * t  * p3;
+}
+
+// ===================================================================
+// TEMPLE RUN — Geração procedural dos segmentos de pista, obstáculos e moedas.
+// Chamado no startup e no reset após game over.
+// ===================================================================
+void GenerateTrackSegments()
+{
+    g_TrackSegments.clear();
+    g_Obstacles.clear();
+    g_Coins.clear();
+    g_CurrentSegment  = 0;
+    g_SegmentProgress = 0.0f;
+    g_TurnPending     = false;
+    g_TurnExecuted    = false;
+
+    glm::vec3 currentPos = glm::vec3(0.0f, 0.0f, 0.0f);
+    int currentDir = DIR_NEG_Z;
+
+    for (int s = 0; s < NUM_SEGMENTS_GEN; ++s)
+    {
+        TrackSegment seg;
+        seg.startPos  = currentPos;
+        seg.direction = currentDir;
+        seg.numTiles  = SEGMENT_MIN_TILES + (rand() % (SEGMENT_MAX_TILES - SEGMENT_MIN_TILES + 1));
+        seg.turnAtEnd = (rand() % 2 == 0) ? -1 : 1;  // esquerda ou direita
+
+        g_TrackSegments.push_back(seg);
+
+        // Gerar obstáculos e moedas neste segmento
+        glm::vec3 fwd = GetForwardVec(seg.direction);
+        glm::vec3 rgt = GetRightVec(seg.direction);
+        float segLength = seg.numTiles * TRACK_TILE_LENGTH;
+
+        // Obstáculos: a partir de 10 unidades do início, espaçados por OBSTACLE_SPACING
+        for (float d = 10.0f; d < segLength - 10.0f; d += OBSTACLE_SPACING)
+        {
+            Obstacle o;
+            o.lane  = (rand() % 3) - 1;
+            o.z     = 0.0f;  // legacy field
+            o.scale = OBSTACLE_SCALE;
+            o.worldPos = seg.startPos + fwd * d + rgt * (o.lane * LANE_WIDTH);
+            o.worldPos.y = o.scale / 10.0f;
+            g_Obstacles.push_back(o);
+        }
+
+        // Moedas: a partir de 7 unidades, espaçadas por COIN_SPACING
+        for (float d = 7.0f; d < segLength - 5.0f; d += COIN_SPACING)
+        {
+            Coin c;
+            c.lane      = (rand() % 3) - 1;
+            c.z         = 0.0f;  // legacy field
+            c.collected = false;
+            c.worldPos  = seg.startPos + fwd * d + rgt * (c.lane * LANE_WIDTH);
+            c.worldPos.y = COIN_Y;
+            g_Coins.push_back(c);
+        }
+
+        // Calcular posição de início do próximo segmento
+        currentPos = seg.startPos + fwd * segLength;
+        if (seg.turnAtEnd == -1)
+            currentDir = TurnLeft(currentDir);
+        else
+            currentDir = TurnRight(currentDir);
+    }
 }
 
 // Definimos o callback para impressão de erros da GLFW no terminal

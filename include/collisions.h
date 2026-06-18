@@ -16,16 +16,18 @@
 // Structs compartilhadas entre main.cpp e collisions.cpp
 struct Obstacle
 {
-    int   lane;   // -1 (esq), 0 (centro), +1 (dir)
-    float z;      // posição em Z no mundo (negativa)
-    float scale;  // raio da esfera placeholder
+    int   lane;       // -1 (esq), 0 (centro), +1 (dir)
+    float z;          // posição em Z no mundo (negativa) — legacy
+    float scale;      // raio da esfera placeholder
+    glm::vec3 worldPos;  // posição calculada no mundo (com direção do segmento)
 };
 
 struct Coin
 {
     int   lane;       // -1, 0, +1
-    float z;          // posição Z fixa no mundo
+    float z;          // posição Z fixa no mundo — legacy
     bool  collected;  // true se já foi coletada
+    glm::vec3 worldPos;  // posição calculada no mundo (com direção do segmento)
 };
 
 // Testa colisão do player com todos os obstáculos.
