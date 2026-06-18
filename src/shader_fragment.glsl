@@ -125,7 +125,7 @@ void main()
         U = (position_model.x - minx) / (maxx - minx);
         V = (position_model.y - miny) / (maxy - miny);
 
-        Kd = texture(TextureImage0, vec2(U,V)).rgb;
+        Kd = texture(TextureImage2, vec2(U,V)).rgb;
         Ks = vec3(0.3, 0.3, 0.3);   // player: leve brilho
         Ka = Kd * 0.20;
         Ke = vec3(0.0);
@@ -144,26 +144,18 @@ void main()
     }
     else if ( object_id == COIN )
     {
-        // Mesma projeção esférica das esferas comuns.
-        vec4 bbox_center = (bbox_min + bbox_max) / 2.0;
-        vec4 d = position_model - bbox_center;
+        // O modelo coin.obj traz UVs próprias; usamos elas diretamente
+        // com a textura Metal007 (TextureImage2) — uma textura metálica
+        // dourada que faz a moeda parecer ouro reluzente.
+        U = texcoords.x;
+        V = texcoords.y;
 
-        float rho   = length(d);
-        float theta = atan(d.x, d.z);
-        float phi   = asin(d.y / rho);
-
-        U = (theta + M_PI) / 2.0 / M_PI;
-        V = (phi   + M_PI_2) / M_PI;
-
-        // Aproveita a textura da esfera, mas dá uma puxada no dourado:
-        vec3 tex = texture(TextureImage0, vec2(U,V)).rgb;
-        vec3 gold_tint = vec3(1.0, 0.85, 0.2);
-        Kd = tex * gold_tint;
+        Kd = texture(TextureImage2, vec2(U,V)).rgb;
         Ks = vec3(0.9, 0.7, 0.2);   // dourado bem reflexivo
         Ka = Kd * 0.30;
         // Termo emissivo: faz a moeda *parecer* brilhante mesmo no escuro,
         // sem precisar afetar outros objetos da cena.
-        Ke = vec3(0.6, 0.5, 0.1);
+        Ke = vec3(0.4, 0.3, 0.05);
         q  = 128.0;
     }
     else

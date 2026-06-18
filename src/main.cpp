@@ -144,6 +144,7 @@ void TextRendering_ShowModelViewProjection(GLFWwindow* window, glm::mat4 project
 void TextRendering_ShowEulerAngles(GLFWwindow* window);
 void TextRendering_ShowProjection(GLFWwindow* window);
 void TextRendering_ShowFramesPerSecond(GLFWwindow* window);
+void TextRendering_ShowCoinScore(GLFWwindow* window);
 
 // Funções callback para comunicação com o sistema operacional e interação do
 // usuário. Veja mais comentários nas definições das mesmas, abaixo.
@@ -226,7 +227,7 @@ const float TRACK_TILE_WIDTH  = 6.0f;  // largura do corredor no eixo X (3 lanes
 glm::vec3 g_PlayerPos = glm::vec3(0.0f, 0.0f, 0.0f);
 
 // Toggle entre câmera 3ª pessoa (false, default) e câmera livre (true).
-// Hoje só a 3ª pessoa está ativa; a câmera livre será habilitada no Passo 12.
+// Alterna ao pressionar a tecla C (veja KeyCallback).
 bool g_UseFreeCamera = false;
 
 // Offset da câmera em terceira pessoa em relação ao player (atrás e acima).
@@ -237,7 +238,7 @@ const glm::vec3 CAMERA_TPP_LOOKAT_OFFSET = glm::vec3(0.0f, 1.0f, -3.0f);
 // Escala aplicada ao bunny (placeholder do player). Ajustada empiricamente
 // para que o coelho ocupe cerca de uma lane de largura, ficando proporcional
 // ao corredor (largura total = 6 unidades, 3 lanes = 2 unidades por lane).
-const float PLAYER_SCALE = 1.0f;
+const float PLAYER_SCALE = 2.0f;
 
 // Velocidade da corrida do player no eixo -Z (unidades de mundo por segundo).
 const float PLAYER_SPEED = 10.0f;
@@ -287,14 +288,14 @@ std::vector<Obstacle> g_Obstacles;
 // OBSTACLE_SPACING_Z (mais denso => valor menor); raio = OBSTACLE_SCALE.
 const float OBSTACLE_FIRST_Z   = -10.0f;
 const float OBSTACLE_SPACING_Z = 10.0f;
-const float OBSTACLE_SCALE     = 0.8f;
+const float OBSTACLE_SCALE     = 2.8f;
 
 std::vector<Coin> g_Coins;
 int g_CoinScore = 0;  // pontuação de moedas coletadas (HUD no Passo 14)
 
 const float COIN_FIRST_Z   = -7.0f;   // primeira moeda a partir deste Z
 const float COIN_SPACING_Z = 6.0f;    // espaçamento entre moedas
-const float COIN_SCALE     = 0.3f;    // raio da esfera (menor que obstáculo)
+const float COIN_SCALE     = 0.05f;   // escala do modelo coin.obj (que tem ~18 unidades de altura)
 const float COIN_Y         = 1.2f;    // altura da moeda (flutuante)
 const float COIN_ROT_SPEED = 3.0f;    // velocidade angular (rad/s)
 
@@ -398,9 +399,10 @@ int main(int argc, char* argv[])
     //
     LoadShadersFromFiles();
 
-    // Carregamos duas imagens para serem utilizadas como textura
-    LoadTextureImage("../../data/red_brick_diff_1k.jpg");      // TextureImage0
-    LoadTextureImage("../../data/rocky_terrain_02_diff_1k.jpg"); // TextureImage1
+    // Carregamos as imagens para serem utilizadas como textura
+    LoadTextureImage("../../data/Lava004_1K-JPG_Color.jpg");      // TextureImage0 (obstáculos)
+    LoadTextureImage("../../data/mossy_cobblestone_diff_1k.jpg"); // TextureImage1 (chão)
+    LoadTextureImage("../../data/Metal007_1K-JPG_Color.jpg");     // TextureImage2 (moedas - dourado)
 
     // ===================================================================
     // TEMPLE RUN — Carregamento dos modelos do jogo.
@@ -417,7 +419,7 @@ int main(int argc, char* argv[])
     // Temple Run. O bunny aponta sua "frente" para o eixo -Z, o que casa com a
     // direção da corrida no nosso corredor. Será substituído por um modelo de
     // personagem real no Passo 13.
-    ObjModel bunnymodel("../../data/bunny.obj");
+    ObjModel bunnymodel("../../data/guy_dangerous.obj");
     ComputeNormals(&bunnymodel);
     BuildTrianglesAndAddToVirtualScene(&bunnymodel);
 
@@ -425,9 +427,16 @@ int main(int argc, char* argv[])
     // obstáculos (troncos, fogo, etc.) que o player precisa desviar.
     // Será substituída por modelos reais no Passo 13. O nome do shape no
     // .obj é "the_sphere".
-    ObjModel spheremodel("../../data/sphere.obj");
+    ObjModel spheremodel("../../data/fire.obj");
     ComputeNormals(&spheremodel);
     BuildTrianglesAndAddToVirtualScene(&spheremodel);
+
+    // Carregamos o modelo da moeda (data/coin.obj). O shape interno foi
+    // renomeado para "the_coin". As moedas são desenhadas como instâncias
+    // deste modelo no loop principal.
+    ObjModel coinmodel("../../data/coin.obj");
+    ComputeNormals(&coinmodel);
+    BuildTrianglesAndAddToVirtualScene(&coinmodel);
 
     // ===================================================================
     // TEMPLE RUN — Geração de obstáculos (uma única vez no startup).
@@ -544,7 +553,7 @@ int main(int argc, char* argv[])
         // TEMPLE RUN — Testes de colisão (implementados em collisions.cpp).
         // ===================================================================
         // Colisão com obstáculos: derrota → reset do player para o início.
-        if (CheckObstacleCollision(g_PlayerPos, g_Obstacles, LANE_WIDTH, OBSTACLE_SCALE, 0.5f))
+        if (CheckObstacleCollision(g_PlayerPos, g_Obstacles, LANE_WIDTH, OBSTACLE_SCALE/4, 0.5f))
         {
             g_PlayerPos = glm::vec3(0.0f, 0.0f, 0.0f);
             g_PlayerLane = 0;
@@ -560,7 +569,7 @@ int main(int argc, char* argv[])
         }
 
         // Colisão com moedas: coleta → moeda desaparece, score incrementa.
-        g_CoinScore += CheckCoinCollision(g_PlayerPos, g_Coins, LANE_WIDTH, COIN_Y, COIN_SCALE, 0.8f);
+        g_CoinScore += CheckCoinCollision(g_PlayerPos, g_Coins, LANE_WIDTH, COIN_Y, COIN_SCALE, 1.5f);
 
         // Definimos a cor do "fundo" do framebuffer como branco.  Tal cor é
         // definida como coeficientes RGBA: Red, Green, Blue, Alpha; isto é:
@@ -591,25 +600,28 @@ int main(int argc, char* argv[])
         // TEMPLE RUN — Seleção do tipo de câmera.
         //   - g_UseFreeCamera = false (default): câmera em TERCEIRA PESSOA,
         //     posicionada atrás e acima do player, olhando para frente (-Z).
-        //   - g_UseFreeCamera = true: câmera LIVRE (orbital) ao redor do
-        //     centro do corredor, controlada pelo mouse. Será habilitada via
-        //     toggle no Passo 12.
+        //   - g_UseFreeCamera = true: câmera LIVRE orbita ao redor do PLAYER
+        //     (não de um ponto fixo do corredor), controlada pelo mouse.
+        // O usuário alterna entre os dois modos pressionando a tecla C
+        // (veja KeyCallback). O jogo NÃO pausa em modo câmera livre.
         // ===================================================================
         glm::vec4 camera_position_c;
         glm::vec4 camera_lookat_l;
 
         if (g_UseFreeCamera)
         {
-            // Câmera livre: orbital, controlada pelo mouse, olhando para o
-            // centro do corredor (útil para inspecionar o cenário).
-            glm::vec4 track_center = glm::vec4(
-                0.0f,
-                0.0f,
-                -((TRACK_NUM_TILES - 1) * TRACK_TILE_LENGTH) * 0.5f,
+            // Câmera livre: orbita ao redor do PLAYER (não do centro fixo do
+            // corredor), garantindo que o jogador esteja sempre visível enquanto
+            // o usuário inspeciona a cena. O ponto de mira fica um pouco acima
+            // do chão (Y + 1.0f), na altura do tronco do bunny.
+            glm::vec4 orbit_center = glm::vec4(
+                g_PlayerPos.x,
+                g_PlayerPos.y + 1.0f,
+                g_PlayerPos.z,
                 1.0f
             );
-            camera_position_c = track_center + glm::vec4(x, y, z, 0.0f);
-            camera_lookat_l   = track_center;
+            camera_position_c = orbit_center + glm::vec4(x, y, z, 0.0f);
+            camera_lookat_l   = orbit_center;
         }
         else
         {
@@ -711,13 +723,13 @@ int main(int argc, char* argv[])
         for (const Obstacle& o : g_Obstacles)
         {
             float ox = o.lane * LANE_WIDTH;      // posição X baseada na lane
-            float oy = o.scale;                  // centro da esfera em Y
+            float oy = o.scale/10;                  // centro da esfera em Y
             float oz = o.z;                      // posição Z (mundo)
             model = Matrix_Translate(ox, oy, oz)
                   * Matrix_Scale(o.scale, o.scale, o.scale);
             glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
             glUniform1i(g_object_id_uniform, OBJ_SPHERE);
-            DrawVirtualObject("the_sphere");
+            DrawVirtualObject("the_sphere2");
         }
 
         // ===================================================================
@@ -739,7 +751,7 @@ int main(int argc, char* argv[])
                       * Matrix_Scale(COIN_SCALE, COIN_SCALE, COIN_SCALE);
                 glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
                 glUniform1i(g_object_id_uniform, OBJ_COIN);
-                DrawVirtualObject("the_sphere");
+                DrawVirtualObject("the_coin");
             }
         }
 
@@ -776,6 +788,9 @@ int main(int argc, char* argv[])
         // Imprimimos na tela informação sobre o número de quadros renderizados
         // por segundo (frames per second).
         TextRendering_ShowFramesPerSecond(window);
+
+        // Imprimimos na tela o contador de moedas coletadas.
+        TextRendering_ShowCoinScore(window);
 
         // O framebuffer onde OpenGL executa as operações de renderização não
         // é o mesmo que está sendo mostrado para o usuário, caso contrário
@@ -1607,6 +1622,24 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mod)
         g_ShowInfoText = !g_ShowInfoText;
     }
 
+    // ===================================================================
+    // TEMPLE RUN — Toggle entre câmera em terceira pessoa (segue o player)
+    // e câmera livre (orbital, controlada pelo mouse).
+    //   - 3ª pessoa (default): jogabilidade normal.
+    //   - Livre: usuário pode arrastar o mouse para orbitar ao redor do
+    //     player (que continua correndo) e usar o scroll para zoom, útil para
+    //     inspecionar o cenário/player de outros ângulos sem pausar o jogo.
+    // O jogo NÃO pausa em modo câmera livre por design — atende ao requisito
+    // "Diferentes tipos de câmeras" do SPEC.md.
+    // ===================================================================
+    if (key == GLFW_KEY_C && action == GLFW_PRESS)
+    {
+        g_UseFreeCamera = !g_UseFreeCamera;
+        fprintf(stdout, "Camera: %s\n",
+                g_UseFreeCamera ? "LIVRE (mouse orbital)" : "TERCEIRA PESSOA");
+        fflush(stdout);
+    }
+
     // Se o usuário apertar a tecla R, recarregamos os shaders dos arquivos "shader_fragment.glsl" e "shader_vertex.glsl".
     if (key == GLFW_KEY_R && action == GLFW_PRESS)
     {
@@ -1799,6 +1832,18 @@ void TextRendering_ShowFramesPerSecond(GLFWwindow* window)
     float charwidth = TextRendering_CharWidth(window);
 
     TextRendering_PrintString(window, buffer, 1.0f-(numchars + 1)*charwidth, 1.0f-lineheight, 1.0f);
+}
+
+void TextRendering_ShowCoinScore(GLFWwindow* window)
+{
+    char buffer[32];
+    int numchars = snprintf(buffer, 32, "Moedas: %d", g_CoinScore);
+
+    float lineheight = TextRendering_LineHeight(window);
+    float charwidth = TextRendering_CharWidth(window);
+
+    // Canto superior esquerdo da tela
+    TextRendering_PrintString(window, buffer, -1.0f + charwidth, 1.0f - lineheight, 1.5f);
 }
 
 // Função para debugging: imprime no terminal todas informações de um modelo

@@ -134,6 +134,39 @@ Atende ao requisito **"Modelos de Iluminação em todos os objetos"** do SPEC.md
 
 ---
 
+### (pendente commit) — Toggle de câmera (Passo 12)
+
+**PROMPT:** "preciso que exista um toogle para mudar a perspectiva de camera para camera livre, deve ter algo pré planejado nos arquivos já"
+
+**Decisões com o usuário (modo plan):**
+- Tecla **C** (Camera) para alternar entre 3ª pessoa e câmera livre;
+- **Sem pausa** ao entrar em câmera livre — o player continua correndo, permitindo inspecionar a cena enquanto o jogo roda.
+
+A infraestrutura já estava pronta desde o **Passo 3**: a flag `g_UseFreeCamera`, o `if/else` no loop principal escolhendo entre câmera em 3ª pessoa (segue player) e câmera livre orbital (controlada pelo mouse via `g_CameraTheta/Phi/Distance`), e o cálculo do `track_center` para a livre. Faltava apenas conectar a tecla.
+
+**Mudanças no `src/main.cpp`:**
+- Em `KeyCallback`, adicionado handler para `GLFW_KEY_C`:
+  ```cpp
+  if (key == GLFW_KEY_C && action == GLFW_PRESS)
+  {
+      g_UseFreeCamera = !g_UseFreeCamera;
+      fprintf(stdout, "Camera: %s\n",
+              g_UseFreeCamera ? "LIVRE (mouse orbital)" : "TERCEIRA PESSOA");
+      fflush(stdout);
+  }
+  ```
+- Comentário `"Será habilitada via toggle no Passo 12"` no bloco de seleção de câmera atualizado para refletir que agora a tecla C faz a alternância e que o jogo NÃO pausa por design.
+- Comentário da declaração de `g_UseFreeCamera` atualizado de `"a câmera livre será habilitada no Passo 12"` para `"Alterna ao pressionar a tecla C (veja KeyCallback)"`.
+
+**Como usar:**
+- **C** — toggle 3ª pessoa ↔ livre
+- Em modo livre: arrastar com botão esquerdo do mouse para orbitar; rodinha do mouse para zoom
+- Player continua correndo no fundo, possibilitando ver colisões/coletas de moedas de outros ângulos
+
+Atende ao requisito **"Diferentes tipos de câmeras"** do SPEC.md ("Implementação de câmera em terceira pessoa durante o jogo e uma câmera livre para observar o cenário.") — em conjunto com o Passo 3, que já havia montado a infraestrutura.
+
+---
+
 ## Nota
 
 Os commits anteriores a `65b7366` (`c0e4b7d`, `7a3b61c`, `36ca731`, `6428874`, `e09be4e`, `53d2990`) são do template base do professor e da especificação — **não foram gerados por IA**.
