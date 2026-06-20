@@ -218,6 +218,11 @@ float g_CameraDistance = 25.0f; // Distância da câmera para o ponto de lookat
 const float TRACK_TILE_LENGTH = 4.0f;  // tamanho de cada tile no eixo "forward" do segmento
 const float TRACK_TILE_WIDTH  = 6.0f;  // largura do corredor (3 lanes)
 
+// Paredes laterais (estilo Temple Run — alturas variadas)
+const float WALL_THICKNESS    = 5.5f;  // espessura da parede
+const float WALL_MIN_HEIGHT   = 1.5f;  // altura mínima dos segmentos de parede
+const float WALL_MAX_HEIGHT   = 3.0f;  // altura máxima dos segmentos de parede
+
 // ===================================================================
 // TEMPLE RUN — Sistema de direções cardinais e curvas 90°.
 // ===================================================================
@@ -252,6 +257,15 @@ glm::vec3 GetRightVec(int dir)
 int TurnLeft(int dir)  { return (dir + 3) % 4; }
 int TurnRight(int dir) { return (dir + 1) % 4; }
 
+// Hash simples para gerar alturas pseudo-aleatórias consistentes por tile de parede.
+float WallHeight(int segIdx, int tileIdx, int side)
+{
+    unsigned int h = (unsigned int)(segIdx * 7919 + tileIdx * 104729 + side * 31);
+    h ^= (h >> 13); h *= 0x5bd1e995u; h ^= (h >> 15);
+    float t = (float)(h % 1000) / 999.0f;  // 0..1
+    return WALL_MIN_HEIGHT + t * (WALL_MAX_HEIGHT - WALL_MIN_HEIGHT);
+}
+
 // Retorna o ângulo Y (em radianos) que o modelo do player deve ter para
 // encarar a direção dada (frente do bunny = -Z no model space).
 float GetDirectionAngleY(int dir)
@@ -268,7 +282,15 @@ struct TrackSegment
     int direction;       // DIR_NEG_Z / DIR_POS_X / DIR_POS_Z / DIR_NEG_X
     int numTiles;        // quantidade de tiles neste trecho (15-50)
     int turnAtEnd;       // -1 = próxima curva à esquerda, +1 = à direita
+    std::vector<bool> gapTiles;  // true = buraco (tile ausente), player deve pular
 };
+
+// Constantes para geração de buracos no chão
+const int   GAP_LENGTH     = 1;    // quantos tiles consecutivos formam um buraco
+const float GAP_CHANCE      = 0.12f; // probabilidade de um buraco começar em cada posição elegível
+const int   GAP_MIN_SPACING = 8;    // tiles mínimos entre buracos
+const int   GAP_SAFE_START  = 5;    // tiles seguros no início do segmento (sem buracos)
+const int   GAP_SAFE_END    = 5;    // tiles seguros no final do segmento
 
 // Vetor de segmentos e índice do segmento atual do player.
 std::vector<TrackSegment> g_TrackSegments;
@@ -290,6 +312,11 @@ const float TURN_WINDOW_DIST = 12.0f;  // distância (em unidades) do fim do seg
 bool  g_TurnPending  = false;  // player está na zona de curva
 bool  g_TurnExecuted = false;  // player apertou a tecla correta
 
+// Interpolação suave da câmera ao virar
+float g_CameraDirAngle     = 0.0f;  // ângulo atual da câmera (interpolado)
+float g_CameraDirTarget    = 0.0f;  // ângulo alvo da câmera
+const float CAMERA_TURN_SPEED = 5.0f;  // velocidade de rotação da câmera (rad/s)
+
 // ===================================================================
 // TEMPLE RUN — Estado do player e modo de câmera.
 // ===================================================================
@@ -309,7 +336,7 @@ const glm::vec3 CAMERA_TPP_LOOKAT_OFFSET = glm::vec3(0.0f, 1.0f, -3.0f);
 // Escala aplicada ao bunny (placeholder do player). Ajustada empiricamente
 // para que o coelho ocupe cerca de uma lane de largura, ficando proporcional
 // ao corredor (largura total = 6 unidades, 3 lanes = 2 unidades por lane).
-const float PLAYER_SCALE = 2.0f;
+const float PLAYER_SCALE = 0.5f;
 
 // Velocidade da corrida do player no eixo -Z (unidades de mundo por segundo).
 const float PLAYER_SPEED = 10.0f;
@@ -363,7 +390,7 @@ std::vector<Coin> g_Coins;
 int g_CoinScore = 0;  // pontuação de moedas coletadas
 
 const float COIN_SPACING = 6.0f;    // espaçamento entre moedas (ao longo do segmento)
-const float COIN_SCALE   = 0.05f;   // escala do modelo coin.obj
+const float COIN_SCALE   = 0.30f;   // escala do modelo coin.obj
 const float COIN_Y       = 1.2f;    // altura da moeda (flutuante)
 const float COIN_ROT_SPEED = 3.0f;  // velocidade angular (rad/s)
 
@@ -470,7 +497,8 @@ int main(int argc, char* argv[])
     // Carregamos as imagens para serem utilizadas como textura
     LoadTextureImage("../../data/Lava004_1K-JPG_Color.jpg");      // TextureImage0 (obstáculos)
     LoadTextureImage("../../data/mossy_cobblestone_diff_1k.jpg"); // TextureImage1 (chão)
-    LoadTextureImage("../../data/Metal007_1K-JPG_Color.jpg");     // TextureImage2 (moedas - dourado)
+    LoadTextureImage("../../data/wallTexture.png");               // TextureImage2 (moedas - do MTL coinYellow)
+    LoadTextureImage("../../data/player.png");               // TextureImage3 (player)
 
     // ===================================================================
     // TEMPLE RUN — Carregamento dos modelos do jogo.
@@ -487,7 +515,7 @@ int main(int argc, char* argv[])
     // Temple Run. O bunny aponta sua "frente" para o eixo -Z, o que casa com a
     // direção da corrida no nosso corredor. Será substituído por um modelo de
     // personagem real no Passo 13.
-    ObjModel bunnymodel("../../data/guy_dangerous.obj");
+    ObjModel bunnymodel("../../data/player.obj");
     ComputeNormals(&bunnymodel);
     BuildTrianglesAndAddToVirtualScene(&bunnymodel);
 
@@ -499,10 +527,9 @@ int main(int argc, char* argv[])
     ComputeNormals(&spheremodel);
     BuildTrianglesAndAddToVirtualScene(&spheremodel);
 
-    // Carregamos o modelo da moeda (data/coin.obj). O shape interno foi
-    // renomeado para "the_coin". As moedas são desenhadas como instâncias
-    // deste modelo no loop principal.
-    ObjModel coinmodel("../../data/coin.obj");
+    // Carregamos o modelo da moeda (data/coinYellow.obj + coinYellow.mtl).
+    // O shape interno é "Box01.001". A textura difusa vem do MTL (wallTexture.png).
+    ObjModel coinmodel("../../data/coinYellow.obj");
     ComputeNormals(&coinmodel);
     BuildTrianglesAndAddToVirtualScene(&coinmodel);
 
@@ -706,10 +733,23 @@ int main(int argc, char* argv[])
         }
         else
         {
-            // Câmera em terceira pessoa: segue o player na direção do segmento.
-            glm::vec3 backVec = -GetForwardVec(g_TrackSegments[g_CurrentSegment].direction);
-            glm::vec3 cam_pos    = g_PlayerPos + backVec * 8.0f + glm::vec3(0.0f, 4.0f, 0.0f);
-            glm::vec3 cam_lookat = g_PlayerPos + GetForwardVec(g_TrackSegments[g_CurrentSegment].direction) * 3.0f + glm::vec3(0.0f, 1.0f, 0.0f);
+            // Câmera em terceira pessoa com rotação suave nas curvas.
+            g_CameraDirTarget = GetDirectionAngleY(g_TrackSegments[g_CurrentSegment].direction);
+
+            // Interpolar ângulo da câmera suavemente em direção ao alvo
+            float angleDiff = g_CameraDirTarget - g_CameraDirAngle;
+            // Normalizar para [-PI, PI]
+            while (angleDiff >  3.1415926f) angleDiff -= 6.2831853f;
+            while (angleDiff < -3.1415926f) angleDiff += 6.2831853f;
+            float maxStep = CAMERA_TURN_SPEED * delta_time;
+            if (angleDiff >  maxStep) angleDiff =  maxStep;
+            if (angleDiff < -maxStep) angleDiff = -maxStep;
+            g_CameraDirAngle += angleDiff;
+
+            // Direção da câmera baseada no ângulo interpolado
+            glm::vec3 camFwd = glm::vec3(-sinf(g_CameraDirAngle), 0.0f, -cosf(g_CameraDirAngle));
+            glm::vec3 cam_pos    = g_PlayerPos - camFwd * 8.0f + glm::vec3(0.0f, 4.0f, 0.0f);
+            glm::vec3 cam_lookat = g_PlayerPos + camFwd * 3.0f + glm::vec3(0.0f, 1.0f, 0.0f);
             camera_position_c = glm::vec4(cam_pos.x,    cam_pos.y,    cam_pos.z,    1.0f);
             camera_lookat_l   = glm::vec4(cam_lookat.x, cam_lookat.y, cam_lookat.z, 1.0f);
         }
@@ -778,50 +818,104 @@ int main(int argc, char* argv[])
 
         // ===================================================================
         // TEMPLE RUN — Desenho do corredor por segmentos.
-        // Cada segmento tem sua direção; os tiles são rotacionados conforme.
+        // Renderiza apenas o segmento atual e o próximo para evitar que
+        // segmentos distantes criem a aparência de bifurcações.
         // ===================================================================
-        for (const TrackSegment& seg : g_TrackSegments)
         {
-            glm::vec3 segFwd = GetForwardVec(seg.direction);
-            float rotY = GetDirectionAngleY(seg.direction);
-            for (int i = 0; i < seg.numTiles; ++i)
+            int segStart = g_CurrentSegment;
+            int segEnd   = std::min(g_CurrentSegment + 2, (int)g_TrackSegments.size());
+            for (int si = segStart; si < segEnd; ++si)
             {
-                glm::vec3 tilePos = seg.startPos + segFwd * ((float)i * TRACK_TILE_LENGTH);
-                model = Matrix_Translate(tilePos.x, 0.0f, tilePos.z)
-                      * Matrix_Rotate_Y(rotY)
-                      * Matrix_Scale(TRACK_TILE_WIDTH * 0.5f, 1.0f, TRACK_TILE_LENGTH * 0.5f);
-                glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
-                glUniform1i(g_object_id_uniform, OBJ_PLANE);
-                DrawVirtualObject("the_plane");
+                const TrackSegment& seg = g_TrackSegments[si];
+                glm::vec3 segFwd = GetForwardVec(seg.direction);
+                float rotY = GetDirectionAngleY(seg.direction);
+                for (int i = 0; i < seg.numTiles; ++i)
+                {
+                    if (seg.gapTiles[i]) continue;  // buraco — não desenhar
+                    glm::vec3 tilePos = seg.startPos + segFwd * ((float)i * TRACK_TILE_LENGTH);
+                    model = Matrix_Translate(tilePos.x, 0.0f, tilePos.z)
+                          * Matrix_Rotate_Y(rotY)
+                          * Matrix_Scale(TRACK_TILE_WIDTH * 0.5f, 1.0f, TRACK_TILE_LENGTH * 0.5f);
+                    glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+                    glUniform1i(g_object_id_uniform, OBJ_PLANE);
+                    DrawVirtualObject("the_plane");
+                }
             }
         }
 
         // ===================================================================
-        // TEMPLE RUN — Desenho dos obstáculos (usando worldPos).
+        // TEMPLE RUN — Paredes laterais com alturas variadas (estilo Temple Run).
+        // Usa o mesmo plane.obj rotacionado para ficar vertical, textura do chão.
         // ===================================================================
-        for (const Obstacle& o : g_Obstacles)
         {
-            model = Matrix_Translate(o.worldPos.x, o.worldPos.y, o.worldPos.z)
-                  * Matrix_Scale(o.scale, o.scale, o.scale);
-            glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
-            glUniform1i(g_object_id_uniform, OBJ_SPHERE);
-            DrawVirtualObject("the_sphere2");
+            int segStart = g_CurrentSegment;
+            int segEnd   = std::min(g_CurrentSegment + 2, (int)g_TrackSegments.size());
+            glDisable(GL_CULL_FACE);
+            for (int si = segStart; si < segEnd; ++si)
+            {
+                const TrackSegment& seg = g_TrackSegments[si];
+                glm::vec3 segFwd   = GetForwardVec(seg.direction);
+                glm::vec3 segRight = GetRightVec(seg.direction);
+                float rotY = GetDirectionAngleY(seg.direction);
+                // No próximo segmento, pular os primeiros 2 tiles para não
+                // sobrepor a zona de curva do segmento anterior.
+                int iStart = (si > g_CurrentSegment) ? 2 : 0;
+                for (int i = iStart; i < seg.numTiles; ++i)
+                {
+                    if (seg.gapTiles[i]) continue;  // sem parede nos gaps
+                    glm::vec3 tileCenter = seg.startPos + segFwd * ((float)i * TRACK_TILE_LENGTH);
+                    for (int side = 0; side < 2; ++side)
+                    {
+                        float wh = WallHeight(si, i, side);
+                        float sign = (side == 0) ? -1.0f : 1.0f;
+                        glm::vec3 wallPos = tileCenter + segRight * (sign * TRACK_TILE_WIDTH * 0.5f);
+                        // Plane.obj é 2x2 no XZ. Rotate_Z(90°) coloca no plano vertical.
+                        // Scale: X → altura/2, Y → espessura, Z → comprimento/2.
+                        model = Matrix_Translate(wallPos.x, wh * 0.5f, wallPos.z)
+                              * Matrix_Rotate_Y(rotY)
+                              * Matrix_Rotate_Z(1.5707963f)
+                              * Matrix_Scale(wh * 0.5f, WALL_THICKNESS * 0.5f, TRACK_TILE_LENGTH * 0.5f);
+                        glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+                        glUniform1i(g_object_id_uniform, OBJ_PLANE);
+                        DrawVirtualObject("the_plane");
+                    }
+                }
+            }
+            glEnable(GL_CULL_FACE);
         }
 
         // ===================================================================
-        // TEMPLE RUN — Desenho das moedas (usando worldPos, girando).
+        // TEMPLE RUN — Desenho dos obstáculos (filtrado por segmento).
+        // ===================================================================
+        {
+            for (const Obstacle& o : g_Obstacles)
+            {
+                if (o.segmentIdx != g_CurrentSegment &&
+                    !(g_TurnExecuted && o.segmentIdx == g_CurrentSegment + 1)) continue;
+                model = Matrix_Translate(o.worldPos.x, o.worldPos.y, o.worldPos.z)
+                      * Matrix_Scale(o.scale, o.scale, o.scale);
+                glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+                glUniform1i(g_object_id_uniform, OBJ_SPHERE);
+                DrawVirtualObject("the_sphere2");
+            }
+        }
+
+        // ===================================================================
+        // TEMPLE RUN — Desenho das moedas (filtrado por segmento).
         // ===================================================================
         {
             float coin_angle = (float)current_time * COIN_ROT_SPEED;
             for (const Coin& c : g_Coins)
             {
                 if (c.collected) continue;
+                if (c.segmentIdx != g_CurrentSegment &&
+                    !(g_TurnExecuted && c.segmentIdx == g_CurrentSegment + 1)) continue;
                 model = Matrix_Translate(c.worldPos.x, c.worldPos.y, c.worldPos.z)
                       * Matrix_Rotate_Y(coin_angle)
                       * Matrix_Scale(COIN_SCALE, COIN_SCALE, COIN_SCALE);
                 glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
                 glUniform1i(g_object_id_uniform, OBJ_COIN);
-                DrawVirtualObject("the_coin");
+                DrawVirtualObject("Box01.001");
             }
         }
 
@@ -829,17 +923,19 @@ int main(int argc, char* argv[])
         // TEMPLE RUN — Desenho do player (bunny), rotacionado na direção atual.
         // ===================================================================
         {
-            float bunny_bbox_min_y = g_VirtualScene["the_bunny"].bbox_min.y;
+            float bunny_bbox_min_y = g_VirtualScene["player"].bbox_min.y;
             float ground_offset_y = -bunny_bbox_min_y * PLAYER_SCALE;
             float playerRotY = GetDirectionAngleY(g_TrackSegments[g_CurrentSegment].direction);
             model = Matrix_Translate(g_PlayerPos.x,
                                      g_PlayerPos.y + ground_offset_y,
                                      g_PlayerPos.z)
-                  * Matrix_Rotate_Y(playerRotY)
+                  * Matrix_Rotate_Y(playerRotY + 3.14159265f)
                   * Matrix_Scale(PLAYER_SCALE, PLAYER_SCALE, PLAYER_SCALE);
             glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
             glUniform1i(g_object_id_uniform, OBJ_BUNNY);
-            DrawVirtualObject("the_bunny");
+            glDisable(GL_CULL_FACE);
+            DrawVirtualObject("player");
+            glEnable(GL_CULL_FACE);
         }
 
         // Imprimimos na tela os ângulos de Euler que controlam a rotação do
@@ -905,8 +1001,8 @@ void LoadTextureImage(const char* filename)
     glGenSamplers(1, &sampler_id);
 
     // Veja slides 95-96 do documento Aula_20_Mapeamento_de_Texturas.pdf
-    glSamplerParameteri(sampler_id, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glSamplerParameteri(sampler_id, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glSamplerParameteri(sampler_id, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glSamplerParameteri(sampler_id, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
     // Parâmetros de amostragem da textura.
     glSamplerParameteri(sampler_id, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
@@ -1012,6 +1108,7 @@ void LoadShadersFromFiles()
     glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage0"), 0);
     glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage1"), 1);
     glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage2"), 2);
+    glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage3"), 3);
     glUseProgram(0);
 }
 
@@ -1832,6 +1929,24 @@ void GenerateTrackSegments()
         seg.numTiles  = SEGMENT_MIN_TILES + (rand() % (SEGMENT_MAX_TILES - SEGMENT_MIN_TILES + 1));
         seg.turnAtEnd = (rand() % 2 == 0) ? -1 : 1;  // esquerda ou direita
 
+        // Gerar buracos no chão (gap tiles)
+        seg.gapTiles.assign(seg.numTiles, false);
+        if (s > 0) // primeiro segmento sem buracos (tutorial)
+        {
+            int lastGapEnd = -GAP_MIN_SPACING; // permite gerar desde o início
+            for (int t = GAP_SAFE_START; t < seg.numTiles - GAP_SAFE_END - GAP_LENGTH; ++t)
+            {
+                if (t - lastGapEnd >= GAP_MIN_SPACING &&
+                    (rand() % 100) < (int)(GAP_CHANCE * 100))
+                {
+                    for (int g = 0; g < GAP_LENGTH && (t + g) < seg.numTiles - GAP_SAFE_END; ++g)
+                        seg.gapTiles[t + g] = true;
+                    lastGapEnd = t + GAP_LENGTH;
+                    t += GAP_LENGTH + GAP_MIN_SPACING - 1; // pular adiante
+                }
+            }
+        }
+
         g_TrackSegments.push_back(seg);
 
         // Gerar obstáculos e moedas neste segmento
@@ -1839,15 +1954,20 @@ void GenerateTrackSegments()
         glm::vec3 rgt = GetRightVec(seg.direction);
         float segLength = seg.numTiles * TRACK_TILE_LENGTH;
 
-        // Obstáculos: a partir de 10 unidades do início, espaçados por OBSTACLE_SPACING
-        for (float d = 10.0f; d < segLength - 10.0f; d += OBSTACLE_SPACING)
+        // Obstáculos: a partir de 20 unidades do início (5 tiles livres após curva)
+        for (float d = 20.0f; d < segLength - 10.0f; d += OBSTACLE_SPACING)
         {
+            // Não gerar obstáculo em tile de gap
+            int tileIdx = (int)(d / TRACK_TILE_LENGTH);
+            if (tileIdx >= 0 && tileIdx < seg.numTiles && seg.gapTiles[tileIdx]) continue;
+
             Obstacle o;
             o.lane  = (rand() % 3) - 1;
             o.z     = 0.0f;  // legacy field
             o.scale = OBSTACLE_SCALE;
             o.worldPos = seg.startPos + fwd * d + rgt * (o.lane * LANE_WIDTH);
             o.worldPos.y = o.scale / 10.0f;
+            o.segmentIdx = s;
             g_Obstacles.push_back(o);
         }
 
@@ -1860,6 +1980,7 @@ void GenerateTrackSegments()
             c.collected = false;
             c.worldPos  = seg.startPos + fwd * d + rgt * (c.lane * LANE_WIDTH);
             c.worldPos.y = COIN_Y;
+            c.segmentIdx = s;
             g_Coins.push_back(c);
         }
 

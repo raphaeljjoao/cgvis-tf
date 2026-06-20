@@ -20,6 +20,7 @@ struct Obstacle
     float z;          // posição em Z no mundo (negativa) — legacy
     float scale;      // raio da esfera placeholder
     glm::vec3 worldPos;  // posição calculada no mundo (com direção do segmento)
+    int segmentIdx;      // índice do segmento ao qual pertence
 };
 
 struct Coin
@@ -28,6 +29,7 @@ struct Coin
     float z;          // posição Z fixa no mundo — legacy
     bool  collected;  // true se já foi coletada
     glm::vec3 worldPos;  // posição calculada no mundo (com direção do segmento)
+    int segmentIdx;      // índice do segmento ao qual pertence
 };
 
 // Testa colisão do player com todos os obstáculos.
