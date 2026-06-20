@@ -33,6 +33,7 @@ uniform vec4 bbox_max;
 uniform sampler2D TextureImage0;
 uniform sampler2D TextureImage1;
 uniform sampler2D TextureImage2;
+uniform sampler2D TextureImage3;
 
 // Posição (em world space) da luz pontual que segue o player (tipo "tocha").
 // Setada por frame em main.cpp.
@@ -57,6 +58,11 @@ void main()
 
     // Normal do fragmento atual.
     vec4 n = normalize(normal);
+
+    // Se estamos renderizando uma back-face, invertemos a normal para
+    // que a iluminação funcione corretamente (player sem backface culling).
+    if (!gl_FrontFacing)
+        n = -n;
 
     // ============================================================
     // FONTE 1 — Luz direcional (sol). Direção fixa no mundo.
@@ -116,16 +122,11 @@ void main()
     }
     else if ( object_id == BUNNY )
     {
-        // Projeção planar XY (mantida do código original).
-        float minx = bbox_min.x;
-        float maxx = bbox_max.x;
-        float miny = bbox_min.y;
-        float maxy = bbox_max.y;
+        // Usa as UVs do próprio modelo (player.obj tem mapeamento UV).
+        U = texcoords.x;
+        V = texcoords.y;
 
-        U = (position_model.x - minx) / (maxx - minx);
-        V = (position_model.y - miny) / (maxy - miny);
-
-        Kd = texture(TextureImage2, vec2(U,V)).rgb;
+        Kd = texture(TextureImage3, vec2(U,V)).rgb;
         Ks = vec3(0.3, 0.3, 0.3);   // player: leve brilho
         Ka = Kd * 0.20;
         Ke = vec3(0.0);
