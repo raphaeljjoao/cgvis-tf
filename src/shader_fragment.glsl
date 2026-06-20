@@ -23,6 +23,7 @@ uniform mat4 projection;
 #define BUNNY  1
 #define PLANE  2
 #define COIN   3
+#define ENEMY  4
 uniform int object_id;
 
 // Parâmetros da axis-aligned bounding box (AABB) do modelo
@@ -34,6 +35,7 @@ uniform sampler2D TextureImage0;
 uniform sampler2D TextureImage1;
 uniform sampler2D TextureImage2;
 uniform sampler2D TextureImage3;
+uniform sampler2D TextureImage4;
 
 // Posição (em world space) da luz pontual que segue o player (tipo "tocha").
 // Setada por frame em main.cpp.
@@ -158,6 +160,17 @@ void main()
         // sem precisar afetar outros objetos da cena.
         Ke = vec3(0.4, 0.3, 0.05);
         q  = 128.0;
+    }
+    else if ( object_id == ENEMY )
+    {
+        U = texcoords.x;
+        V = texcoords.y;
+
+        Kd = texture(TextureImage4, vec2(U,V)).rgb;
+        Ks = vec3(0.3, 0.3, 0.3);
+        Ka = Kd * 0.20;
+        Ke = vec3(0.0);
+        q  = 32.0;
     }
     else
     {

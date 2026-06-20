@@ -210,6 +210,7 @@ float g_CameraDistance = 25.0f; // Distância da câmera para o ponto de lookat
 #define OBJ_BUNNY  1
 #define OBJ_PLANE  2
 #define OBJ_COIN   3
+#define OBJ_ENEMY  4
 
 // Geometria do corredor:
 //   - Cada tile é uma instância do plane.obj (que originalmente é 2x2 no plano XZ),
@@ -316,6 +317,15 @@ bool  g_TurnExecuted = false;  // player apertou a tecla correta
 float g_CameraDirAngle     = 0.0f;  // ângulo atual da câmera (interpolado)
 float g_CameraDirTarget    = 0.0f;  // ângulo alvo da câmera
 const float CAMERA_TURN_SPEED = 5.0f;  // velocidade de rotação da câmera (rad/s)
+
+// ===================================================================
+// TEMPLE RUN — Sequência de abertura (intro cinematic).
+// ===================================================================
+bool  g_IntroActive    = true;   // true durante a sequência de abertura
+float g_IntroTimer     = 0.0f;   // tempo decorrido desde o início da intro
+const float INTRO_DURATION   = 3.5f;  // duração total da intro (segundos)
+const float ENEMY_SCALE      = 0.4f;  // escala dos inimigos na intro
+const int   NUM_INTRO_ENEMIES = 4;    // quantidade de inimigos perseguindo
 
 // ===================================================================
 // TEMPLE RUN — Estado do player e modo de câmera.
@@ -499,6 +509,7 @@ int main(int argc, char* argv[])
     LoadTextureImage("../../data/mossy_cobblestone_diff_1k.jpg"); // TextureImage1 (chão)
     LoadTextureImage("../../data/wallTexture.png");               // TextureImage2 (moedas - do MTL coinYellow)
     LoadTextureImage("../../data/player.png");               // TextureImage3 (player)
+    LoadTextureImage("../../data/enemyTexture.png");          // TextureImage4 (enemy)
 
     // ===================================================================
     // TEMPLE RUN — Carregamento dos modelos do jogo.
@@ -532,6 +543,11 @@ int main(int argc, char* argv[])
     ObjModel coinmodel("../../data/coinYellow.obj");
     ComputeNormals(&coinmodel);
     BuildTrianglesAndAddToVirtualScene(&coinmodel);
+
+    // Carregamos o modelo do inimigo (data/enemy.obj).
+    ObjModel enemymodel("../../data/enemy.obj");
+    ComputeNormals(&enemymodel);
+    BuildTrianglesAndAddToVirtualScene(&enemymodel);
 
     // ===================================================================
     // TEMPLE RUN — Geração dos segmentos da pista e dos objetos (moedas/obstáculos).
@@ -576,8 +592,24 @@ int main(int argc, char* argv[])
         g_SegmentProgress += PLAYER_SPEED * delta_time;
 
         // ===================================================================
+        // TEMPLE RUN — Intro cinematic update.
+        // ===================================================================
+        if (g_IntroActive)
+        {
+            g_IntroTimer += delta_time;
+            if (g_IntroTimer >= INTRO_DURATION)
+            {
+                g_IntroActive = false;
+                // Inicializar ângulo da câmera para a direção atual
+                g_CameraDirAngle = GetDirectionAngleY(g_TrackSegments[g_CurrentSegment].direction);
+            }
+        }
+
+        // ===================================================================
         // TEMPLE RUN — Turn mechanic: zona de curva e transição de segmento.
         // ===================================================================
+      if (!g_IntroActive)
+      {
         float distToEnd = segLength - g_SegmentProgress;
 
         if (distToEnd <= TURN_WINDOW_DIST && !g_TurnExecuted)
@@ -596,6 +628,8 @@ int main(int argc, char* argv[])
                 g_PlayerLane = 0;
                 g_PlayerJumping = false;
                 g_CoinScore = 0;
+                g_IntroActive = true;
+                g_IntroTimer  = 0.0f;
                 srand((unsigned)time(NULL));
                 GenerateTrackSegments();
                 curSeg = g_TrackSegments[g_CurrentSegment];
@@ -623,6 +657,7 @@ int main(int argc, char* argv[])
                 segLength = curSeg.numTiles * TRACK_TILE_LENGTH;
             }
         }
+      } // end if (!g_IntroActive) — turn mechanic
 
         // Posição central do player ao longo do segmento (sem offset de lane)
         glm::vec3 centerPos = curSeg.startPos + fwd * g_SegmentProgress;
@@ -665,6 +700,8 @@ int main(int argc, char* argv[])
         // ===================================================================
         // TEMPLE RUN — Testes de colisão (usando posições world dos objetos).
         // ===================================================================
+      if (!g_IntroActive)
+      {
         if (CheckObstacleCollision(g_PlayerPos, g_Obstacles, LANE_WIDTH, OBSTACLE_SCALE/4, 0.5f))
         {
             printf("COLISÃO! Player resetado. Score: %d moedas\n", g_CoinScore);
@@ -672,12 +709,15 @@ int main(int argc, char* argv[])
             g_PlayerLane = 0;
             g_PlayerJumping = false;
             g_CoinScore = 0;
+            g_IntroActive = true;
+            g_IntroTimer  = 0.0f;
             srand((unsigned)time(NULL));
             GenerateTrackSegments();
         }
 
         // Colisão com moedas: coleta → moeda desaparece, score incrementa.
         g_CoinScore += CheckCoinCollision(g_PlayerPos, g_Coins, LANE_WIDTH, COIN_Y, COIN_SCALE, 1.5f);
+      } // end collision guard
 
         // Definimos a cor do "fundo" do framebuffer como branco.  Tal cor é
         // definida como coeficientes RGBA: Red, Green, Blue, Alpha; isto é:
@@ -730,6 +770,27 @@ int main(int argc, char* argv[])
             );
             camera_position_c = orbit_center + glm::vec4(x, y, z, 0.0f);
             camera_lookat_l   = orbit_center;
+        }
+        else if (g_IntroActive)
+        {
+            // Intro cinematic: câmera gira de frontal para atrás do player.
+            float t = g_IntroTimer / INTRO_DURATION;
+            if (t > 1.0f) t = 1.0f;
+            // Suavizar com ease-in-out (smoothstep)
+            float smooth_t = t * t * (3.0f - 2.0f * t);
+
+            // Ângulo base da direção do segmento atual
+            float baseAngle = GetDirectionAngleY(g_TrackSegments[g_CurrentSegment].direction);
+            // Câmera começa em frente (baseAngle + PI) e gira até atrás (baseAngle)
+            float introAngle = baseAngle + 3.1415926f * (1.0f - smooth_t);
+
+            glm::vec3 camFwd = glm::vec3(-sinf(introAngle), 0.0f, -cosf(introAngle));
+            float camDist = 6.0f + 2.0f * smooth_t;  // começa perto, afasta um pouco
+            float camHeight = 7.0f + 1.0f * smooth_t;  // vista mais de cima, desce no final
+            glm::vec3 cam_pos    = g_PlayerPos - camFwd * camDist + glm::vec3(0.0f, camHeight, 0.0f);
+            glm::vec3 cam_lookat = g_PlayerPos + glm::vec3(0.0f, 1.5f, 0.0f);
+            camera_position_c = glm::vec4(cam_pos.x,    cam_pos.y,    cam_pos.z,    1.0f);
+            camera_lookat_l   = glm::vec4(cam_lookat.x, cam_lookat.y, cam_lookat.z, 1.0f);
         }
         else
         {
@@ -847,6 +908,7 @@ int main(int argc, char* argv[])
         // TEMPLE RUN — Paredes laterais com alturas variadas (estilo Temple Run).
         // Usa o mesmo plane.obj rotacionado para ficar vertical, textura do chão.
         // ===================================================================
+        if (!g_IntroActive)
         {
             int segStart = g_CurrentSegment;
             int segEnd   = std::min(g_CurrentSegment + 2, (int)g_TrackSegments.size());
@@ -936,6 +998,36 @@ int main(int argc, char* argv[])
             glDisable(GL_CULL_FACE);
             DrawVirtualObject("player");
             glEnable(GL_CULL_FACE);
+        }
+
+        // ===================================================================
+        // TEMPLE RUN — Desenho dos inimigos (perseguidores durante a intro,
+        // depois continuam correndo atrás do player).
+        // ===================================================================
+        {
+            glm::vec3 segFwd = GetForwardVec(g_TrackSegments[g_CurrentSegment].direction);
+            float playerRotY = GetDirectionAngleY(g_TrackSegments[g_CurrentSegment].direction);
+            float enemy_bbox_min_y = g_VirtualScene["enemy"].bbox_min.y;
+            float enemy_ground_y = -enemy_bbox_min_y * ENEMY_SCALE;
+
+            for (int e = 0; e < NUM_INTRO_ENEMIES; ++e)
+            {
+                // Posicionar inimigos atrás do player, em formação escalonada
+                float behindDist = 10.0f + e * 5.0f;  // distância atrás
+                float lateralOff = (e == 0) ? 0.0f : ((e % 2 == 1) ? -1.5f : 1.5f);
+                glm::vec3 rightVec = GetRightVec(g_TrackSegments[g_CurrentSegment].direction);
+                glm::vec3 enemyPos = g_PlayerPos - segFwd * behindDist + rightVec * lateralOff;
+                enemyPos.y = enemy_ground_y;
+
+                model = Matrix_Translate(enemyPos.x, enemyPos.y, enemyPos.z)
+                      * Matrix_Rotate_Y(playerRotY + 3.14159265f)
+                      * Matrix_Scale(ENEMY_SCALE, ENEMY_SCALE, ENEMY_SCALE);
+                glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+                glUniform1i(g_object_id_uniform, OBJ_ENEMY);
+                glDisable(GL_CULL_FACE);
+                DrawVirtualObject("enemy");
+                glEnable(GL_CULL_FACE);
+            }
         }
 
         // Imprimimos na tela os ângulos de Euler que controlam a rotação do
@@ -1109,6 +1201,7 @@ void LoadShadersFromFiles()
     glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage1"), 1);
     glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage2"), 2);
     glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage3"), 3);
+    glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage4"), 4);
     glUseProgram(0);
 }
 
