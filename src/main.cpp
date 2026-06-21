@@ -119,6 +119,7 @@ void PopMatrix(glm::mat4& M);
 void BuildTrianglesAndAddToVirtualScene(ObjModel*); // Constrói representação de um ObjModel como malha de triângulos para renderização
 void ComputeNormals(ObjModel* model); // Computa normais de um ObjModel, caso não existam.
 void LoadShadersFromFiles(); // Carrega os shaders de vértice e fragmento, criando um programa de GPU
+void LoadPostProcessShadersFromFiles(); // Carrega os shaders do blur de tela
 void LoadTextureImage(const char* filename); // Função que carrega imagens de textura
 void DrawVirtualObject(const char* object_name); // Desenha um objeto armazenado em g_VirtualScene
 GLuint LoadShader_Vertex(const char* filename);   // Carrega um vertex shader
@@ -126,6 +127,7 @@ GLuint LoadShader_Fragment(const char* filename); // Carrega um fragment shader
 void LoadShader(const char* filename, GLuint shader_id); // Função utilizada pelas duas acima
 GLuint CreateGpuProgram(GLuint vertex_shader_id, GLuint fragment_shader_id); // Cria um programa de GPU
 void PrintObjModelInfo(ObjModel*); // Função para debugging
+void ApplyMenuBackgroundBlur(GLFWwindow* window);
 
 // Declaração de funções auxiliares para renderizar texto dentro da janela
 // OpenGL. Estas funções estão definidas no arquivo "textrendering.cpp".
@@ -146,6 +148,7 @@ void TextRendering_ShowEulerAngles(GLFWwindow* window);
 void TextRendering_ShowProjection(GLFWwindow* window);
 void TextRendering_ShowFramesPerSecond(GLFWwindow* window);
 void TextRendering_ShowCoinScore(GLFWwindow* window);
+void TextRendering_ShowGameScreen(GLFWwindow* window);
 
 // Funções callback para comunicação com o sistema operacional e interação do
 // usuário. Veja mais comentários nas definições das mesmas, abaixo.
@@ -182,6 +185,8 @@ std::stack<glm::mat4>  g_MatrixStack;
 
 // Razão de proporção da janela (largura/altura). Veja função FramebufferSizeCallback().
 float g_ScreenRatio = 1.0f;
+int g_FramebufferWidth = 800;
+int g_FramebufferHeight = 600;
 
 // Ângulos de Euler que controlam a rotação de um dos cubos da cena virtual
 float g_AngleX = 0.0f;
@@ -352,9 +357,9 @@ glm::vec3 g_PlayerPos = glm::vec3(0.0f, 0.0f, 0.0f);
 bool g_UseFreeCamera = false;
 
 // Offset da câmera em terceira pessoa em relação ao player (atrás e acima).
-const glm::vec3 CAMERA_TPP_OFFSET = glm::vec3(0.0f, 4.0f, 8.0f);
-// Para onde a câmera olha, relativo ao player (um pouco à frente e à altura do peito).
-const glm::vec3 CAMERA_TPP_LOOKAT_OFFSET = glm::vec3(0.0f, 1.0f, -3.0f);
+const glm::vec3 CAMERA_TPP_OFFSET = glm::vec3(0.0f, 6.2f, 9.0f);
+// Para onde a câmera olha, relativo ao player (mais à frente e um pouco acima).
+const glm::vec3 CAMERA_TPP_LOOKAT_OFFSET = glm::vec3(0.0f, 1.8f, -4.0f);
 
 // Escala aplicada ao bunny (placeholder do player). Ajustada empiricamente
 // para que o coelho ocupe cerca de uma lane de largura, ficando proporcional
@@ -425,6 +430,16 @@ const float COIN_SCALE   = 0.30f;   // escala do modelo coin.obj
 const float COIN_Y       = 1.2f;    // altura da moeda (flutuante)
 const float COIN_ROT_SPEED = 3.0f;  // velocidade angular (rad/s)
 
+enum GameState
+{
+    GAME_STATE_MENU,
+    GAME_STATE_PLAYING,
+    GAME_STATE_GAME_OVER
+};
+
+GameState g_GameState = GAME_STATE_MENU;
+int g_FinalCoinScore = 0;
+
 // Variáveis que controlam rotação do antebraço
 float g_ForearmAngleZ = 0.0f;
 float g_ForearmAngleX = 0.0f;
@@ -452,12 +467,23 @@ GLint g_light_position_uniform; // Posição (world) da luz pontual que segue o 
 // Número de texturas carregadas pela função LoadTextureImage()
 GLuint g_NumLoadedTextures = 0;
 
+// Recursos do pós-processamento usados para desfocar o fundo no menu/game over.
+GLuint g_PostProcessProgramID = 0;
+GLuint g_PostProcessVAO = 0;
+GLuint g_PostProcessTexture = 0;
+GLint g_PostProcessResolutionUniform;
+GLint g_PostProcessBlurStrengthUniform;
+const GLenum POSTPROCESS_TEXTURE_UNIT = GL_TEXTURE5;
+const GLint POSTPROCESS_TEXTURE_SLOT = 5;
+
 void ResetRun(bool startIntro = true)
 {
     g_PlayerPos = glm::vec3(0.0f, 0.0f, 0.0f);
     g_PlayerLane = 0;
     g_PlayerJumping = false;
     g_CoinScore = 0;
+    g_TurnPending = false;
+    g_TurnExecuted = false;
 
     if (startIntro)
     {
@@ -467,6 +493,34 @@ void ResetRun(bool startIntro = true)
 
     srand((unsigned)time(NULL));
     GenerateTrackSegments();
+}
+
+void StartGame()
+{
+    ResetRun(true);
+    g_GameState = GAME_STATE_PLAYING;
+    g_LastFrameTime = glfwGetTime();
+}
+
+void EndGame(const char* reason)
+{
+    g_FinalCoinScore = g_CoinScore;
+    g_GameState = GAME_STATE_GAME_OVER;
+    g_IntroActive = false;
+    g_LeftMouseButtonPressed = false;
+    printf("GAME OVER! %s Score: %d moedas\n", reason, g_FinalCoinScore);
+}
+
+bool IsGameButtonClicked(GLFWwindow* window, double cursorX, double cursorY)
+{
+    int width, height;
+    glfwGetWindowSize(window, &width, &height);
+    if (width <= 0 || height <= 0)
+        return false;
+
+    float x = 2.0f * (float)cursorX / (float)width - 1.0f;
+    float y = 1.0f - 2.0f * (float)cursorY / (float)height;
+    return x >= -0.38f && x <= 0.38f && y >= -0.30f && y <= -0.02f;
 }
 
 int main(int argc, char* argv[])
@@ -541,6 +595,7 @@ int main(int argc, char* argv[])
     // para renderização. Veja slides 180-200 do documento Aula_03_Rendering_Pipeline_Grafico.pdf.
     //
     LoadShadersFromFiles();
+    LoadPostProcessShadersFromFiles();
 
     // Carregamos as imagens para serem utilizadas como textura
     LoadTextureImage("../../data/Lava004_1K-JPG_Color.jpg");      // TextureImage0 (obstáculos)
@@ -626,133 +681,123 @@ int main(int argc, char* argv[])
         glm::vec3 rgt = GetRightVec(curSeg.direction);
         float segLength = curSeg.numTiles * TRACK_TILE_LENGTH;
 
-        // Movimenta o player automaticamente na direção do segmento atual.
-        g_SegmentProgress += PLAYER_SPEED * delta_time;
-
-        // ===================================================================
-        // TEMPLE RUN — Intro cinematic update.
-        // ===================================================================
-        if (g_IntroActive)
+        if (g_GameState == GAME_STATE_PLAYING)
         {
-            g_IntroTimer += delta_time;
-            if (g_IntroTimer >= INTRO_DURATION)
+            // Movimenta o player automaticamente na direção do segmento atual.
+            g_SegmentProgress += PLAYER_SPEED * delta_time;
+
+            // ===================================================================
+            // TEMPLE RUN — Intro cinematic update.
+            // ===================================================================
+            if (g_IntroActive)
             {
-                g_IntroActive = false;
-                // Inicializar ângulo da câmera para a direção atual
-                g_CameraDirAngle = GetDirectionAngleY(g_TrackSegments[g_CurrentSegment].direction);
-            }
-        }
-
-        // ===================================================================
-        // TEMPLE RUN — Turn mechanic: zona de curva e transição de segmento.
-        // ===================================================================
-      if (!g_IntroActive)
-      {
-        float distToEnd = segLength - g_SegmentProgress;
-
-        if (distToEnd <= TURN_WINDOW_DIST && !g_TurnExecuted)
-        {
-            g_TurnPending = true;
-        }
-
-        // Se ultrapassou o fim do segmento
-        if (g_SegmentProgress >= segLength)
-        {
-            if (!g_TurnExecuted)
-            {
-                // GAME OVER — não virou a tempo!
-                printf("GAME OVER! Não virou a tempo. Score: %d moedas\n", g_CoinScore);
-                ResetRun(true);
-                curSeg = g_TrackSegments[g_CurrentSegment];
-                fwd = GetForwardVec(curSeg.direction);
-                rgt = GetRightVec(curSeg.direction);
-                segLength = curSeg.numTiles * TRACK_TILE_LENGTH;
-            }
-            else
-            {
-                // Transição para o próximo segmento
-                g_SegmentProgress -= segLength;
-                g_CurrentSegment++;
-                g_TurnPending  = false;
-                g_TurnExecuted = false;
-
-                if (g_CurrentSegment >= (int)g_TrackSegments.size())
+                g_IntroTimer += delta_time;
+                if (g_IntroTimer >= INTRO_DURATION)
                 {
-                    // Gerar mais segmentos (regenerar tudo por simplicidade)
-                    srand((unsigned)time(NULL));
-                    GenerateTrackSegments();
+                    g_IntroActive = false;
+                    // Inicializar ângulo da câmera para a direção atual
+                    g_CameraDirAngle = GetDirectionAngleY(g_TrackSegments[g_CurrentSegment].direction);
                 }
-                curSeg = g_TrackSegments[g_CurrentSegment];
-                fwd = GetForwardVec(curSeg.direction);
-                rgt = GetRightVec(curSeg.direction);
-                segLength = curSeg.numTiles * TRACK_TILE_LENGTH;
             }
-        }
-      } // end if (!g_IntroActive) — turn mechanic
 
-        // Posição central do player ao longo do segmento (sem offset de lane)
-        glm::vec3 centerPos = curSeg.startPos + fwd * g_SegmentProgress;
+            // ===================================================================
+            // TEMPLE RUN — Turn mechanic: zona de curva e transição de segmento.
+            // ===================================================================
+          if (!g_IntroActive)
+          {
+            float distToEnd = segLength - g_SegmentProgress;
 
-        // Troca de lane: interpolação suave na direção perpendicular ao segmento.
-        {
-            glm::vec3 targetPos = centerPos + rgt * (g_PlayerLane * LANE_WIDTH);
-            float dx = targetPos.x - g_PlayerPos.x;
-            float dz = targetPos.z - g_PlayerPos.z;
-            float dist = sqrtf(dx * dx + dz * dz);
-            float step = LANE_CHANGE_SPEED * delta_time;
-            if (dist <= step)
+            if (distToEnd <= TURN_WINDOW_DIST && !g_TurnExecuted)
             {
-                g_PlayerPos.x = targetPos.x;
-                g_PlayerPos.z = targetPos.z;
+                g_TurnPending = true;
             }
-            else
+
+            // Se ultrapassou o fim do segmento
+            if (g_SegmentProgress >= segLength)
             {
-                float inv = step / dist;
-                g_PlayerPos.x += dx * inv;
-                g_PlayerPos.z += dz * inv;
-            }
-        }
+                if (!g_TurnExecuted)
+                {
+                    EndGame("Nao virou a tempo.");
+                }
+                else
+                {
+                    // Transição para o próximo segmento
+                    g_SegmentProgress -= segLength;
+                    g_CurrentSegment++;
+                    g_TurnPending  = false;
+                    g_TurnExecuted = false;
 
-        // Salto (Y): curva de Bézier cúbica
-        if (g_PlayerJumping)
-        {
-            float t = (float)((current_time - g_JumpStartTime) / JUMP_DURATION);
-            if (t >= 1.0f)
+                    if (g_CurrentSegment >= (int)g_TrackSegments.size())
+                    {
+                        // Gerar mais segmentos (regenerar tudo por simplicidade)
+                        srand((unsigned)time(NULL));
+                        GenerateTrackSegments();
+                    }
+                    curSeg = g_TrackSegments[g_CurrentSegment];
+                    fwd = GetForwardVec(curSeg.direction);
+                    rgt = GetRightVec(curSeg.direction);
+                    segLength = curSeg.numTiles * TRACK_TILE_LENGTH;
+                }
+            }
+          } // end if (!g_IntroActive) — turn mechanic
+
+            // Posição central do player ao longo do segmento (sem offset de lane)
+            glm::vec3 centerPos = curSeg.startPos + fwd * g_SegmentProgress;
+
             {
-                g_PlayerJumping = false;
-                g_PlayerPos.y   = 0.0f;
+                glm::vec3 targetPos = centerPos + rgt * (g_PlayerLane * LANE_WIDTH);
+                float dx = targetPos.x - g_PlayerPos.x;
+                float dz = targetPos.z - g_PlayerPos.z;
+                float dist = sqrtf(dx * dx + dz * dz);
+                float step = LANE_CHANGE_SPEED * delta_time;
+                if (dist <= step)
+                {
+                    g_PlayerPos.x = targetPos.x;
+                    g_PlayerPos.z = targetPos.z;
+                }
+                else
+                {
+                    float inv = step / dist;
+                    g_PlayerPos.x += dx * inv;
+                    g_PlayerPos.z += dz * inv;
+                }
             }
-            else
+
+            // Salto (Y): curva de Bézier cúbica
+            if (g_PlayerJumping)
             {
-                g_PlayerPos.y = BezierCubic(t, JUMP_P0, JUMP_P1, JUMP_P2, JUMP_P3);
+                float t = (float)((current_time - g_JumpStartTime) / JUMP_DURATION);
+                if (t >= 1.0f)
+                {
+                    g_PlayerJumping = false;
+                    g_PlayerPos.y   = 0.0f;
+                }
+                else
+                {
+                    g_PlayerPos.y = BezierCubic(t, JUMP_P0, JUMP_P1, JUMP_P2, JUMP_P3);
+                }
             }
-        }
 
-        // Se o tile atual não existe, o player precisa estar em salto para sobreviver.
-        if (!g_IntroActive && IsGapTileAtProgress(curSeg, g_SegmentProgress) && !g_PlayerJumping)
-        {
-            printf("GAME OVER! Caiu no buraco. Score: %d moedas\n", g_CoinScore);
-            ResetRun(true);
-            curSeg = g_TrackSegments[g_CurrentSegment];
-            fwd = GetForwardVec(curSeg.direction);
-            rgt = GetRightVec(curSeg.direction);
-            segLength = curSeg.numTiles * TRACK_TILE_LENGTH;
-        }
+            // Se o tile atual não existe, o player precisa estar em salto para sobreviver.
+            if (!g_IntroActive && IsGapTileAtProgress(curSeg, g_SegmentProgress) && !g_PlayerJumping)
+            {
+                EndGame("Caiu no buraco.");
+            }
 
-        // ===================================================================
-        // TEMPLE RUN — Testes de colisão (usando posições world dos objetos).
-        // ===================================================================
-      if (!g_IntroActive)
-      {
-        if (CheckObstacleCollision(g_PlayerPos, g_Obstacles, LANE_WIDTH, OBSTACLE_SCALE/4, 0.5f))
-        {
-            printf("COLISÃO! Player resetado. Score: %d moedas\n", g_CoinScore);
-            ResetRun(true);
-        }
+            // ===================================================================
+            // TEMPLE RUN — Testes de colisão (usando posições world dos objetos).
+            // ===================================================================
+          if (g_GameState == GAME_STATE_PLAYING && !g_IntroActive)
+          {
+            if (CheckObstacleCollision(g_PlayerPos, g_Obstacles, LANE_WIDTH, OBSTACLE_SCALE/4, 0.5f))
+            {
+                EndGame("Colidiu com um obstaculo.");
+            }
 
-        // Colisão com moedas: coleta → moeda desaparece, score incrementa.
-        g_CoinScore += CheckCoinCollision(g_PlayerPos, g_Coins, LANE_WIDTH, COIN_Y, COIN_SCALE, 1.5f);
-      } // end collision guard
+            if (g_GameState == GAME_STATE_PLAYING)
+                g_CoinScore += CheckCoinCollision(g_PlayerPos, g_Coins, LANE_WIDTH, COIN_Y, COIN_SCALE, 1.5f);
+          } // end collision guard
+        } // end gameplay update
 
         // Definimos a cor do "fundo" do framebuffer como branco.  Tal cor é
         // definida como coeficientes RGBA: Red, Green, Blue, Alpha; isto é:
@@ -844,8 +889,8 @@ int main(int argc, char* argv[])
 
             // Direção da câmera baseada no ângulo interpolado
             glm::vec3 camFwd = glm::vec3(-sinf(g_CameraDirAngle), 0.0f, -cosf(g_CameraDirAngle));
-            glm::vec3 cam_pos    = g_PlayerPos - camFwd * 8.0f + glm::vec3(0.0f, 4.0f, 0.0f);
-            glm::vec3 cam_lookat = g_PlayerPos + camFwd * 3.0f + glm::vec3(0.0f, 1.0f, 0.0f);
+            glm::vec3 cam_pos    = g_PlayerPos - camFwd * CAMERA_TPP_OFFSET.z + glm::vec3(0.0f, CAMERA_TPP_OFFSET.y, 0.0f);
+            glm::vec3 cam_lookat = g_PlayerPos + camFwd * -CAMERA_TPP_LOOKAT_OFFSET.z + glm::vec3(0.0f, CAMERA_TPP_LOOKAT_OFFSET.y, 0.0f);
             camera_position_c = glm::vec4(cam_pos.x,    cam_pos.y,    cam_pos.z,    1.0f);
             camera_lookat_l   = glm::vec4(cam_lookat.x, cam_lookat.y, cam_lookat.z, 1.0f);
         }
@@ -1064,7 +1109,7 @@ int main(int argc, char* argv[])
         // ===================================================================
         // TEMPLE RUN — Desenho dos obstáculos (filtrado por segmento).
         // ===================================================================
-        if (!g_IntroActive)
+        if (g_GameState == GAME_STATE_PLAYING && !g_IntroActive)
         {
             for (const Obstacle& o : g_Obstacles)
             {
@@ -1081,7 +1126,7 @@ int main(int argc, char* argv[])
         // ===================================================================
         // TEMPLE RUN — Desenho das moedas (filtrado por segmento).
         // ===================================================================
-        if (!g_IntroActive)
+        if (g_GameState == GAME_STATE_PLAYING && !g_IntroActive)
         {
             float coin_angle = (float)current_time * COIN_ROT_SPEED;
             for (const Coin& c : g_Coins)
@@ -1169,17 +1214,18 @@ int main(int argc, char* argv[])
 
         // Imprimimos na tela os ângulos de Euler que controlam a rotação do
         // terceiro cubo.
-        TextRendering_ShowEulerAngles(window);
-
-        // Imprimimos na informação sobre a matriz de projeção sendo utilizada.
-        TextRendering_ShowProjection(window);
-
-        // Imprimimos na tela informação sobre o número de quadros renderizados
-        // por segundo (frames per second).
-        TextRendering_ShowFramesPerSecond(window);
-
-        // Imprimimos na tela o contador de moedas coletadas.
-        TextRendering_ShowCoinScore(window);
+        if (g_GameState == GAME_STATE_PLAYING)
+        {
+            TextRendering_ShowEulerAngles(window);
+            TextRendering_ShowProjection(window);
+            TextRendering_ShowFramesPerSecond(window);
+            TextRendering_ShowCoinScore(window);
+        }
+        else
+        {
+            ApplyMenuBackgroundBlur(window);
+            TextRendering_ShowGameScreen(window);
+        }
 
         // O framebuffer onde OpenGL executa as operações de renderização não
         // é o mesmo que está sendo mostrado para o usuário, caso contrário
@@ -1340,6 +1386,70 @@ void LoadShadersFromFiles()
     glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage3"), 3);
     glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage4"), 4);
     glUseProgram(0);
+}
+
+void LoadPostProcessShadersFromFiles()
+{
+    GLuint vertex_shader_id = LoadShader_Vertex("../../src/postprocess_blur_vertex.glsl");
+    GLuint fragment_shader_id = LoadShader_Fragment("../../src/postprocess_blur_fragment.glsl");
+
+    if ( g_PostProcessProgramID != 0 )
+        glDeleteProgram(g_PostProcessProgramID);
+
+    g_PostProcessProgramID = CreateGpuProgram(vertex_shader_id, fragment_shader_id);
+
+    g_PostProcessResolutionUniform   = glGetUniformLocation(g_PostProcessProgramID, "screen_resolution");
+    g_PostProcessBlurStrengthUniform = glGetUniformLocation(g_PostProcessProgramID, "blur_strength");
+
+    glUseProgram(g_PostProcessProgramID);
+    glUniform1i(glGetUniformLocation(g_PostProcessProgramID, "screen_texture"), POSTPROCESS_TEXTURE_SLOT);
+    glUseProgram(0);
+
+    if (g_PostProcessVAO == 0)
+        glGenVertexArrays(1, &g_PostProcessVAO);
+
+    if (g_PostProcessTexture == 0)
+        glGenTextures(1, &g_PostProcessTexture);
+
+    glActiveTexture(POSTPROCESS_TEXTURE_UNIT);
+    glBindTexture(GL_TEXTURE_2D, g_PostProcessTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
+}
+
+void ApplyMenuBackgroundBlur(GLFWwindow* window)
+{
+    if (g_PostProcessProgramID == 0 || g_PostProcessVAO == 0 || g_PostProcessTexture == 0)
+        return;
+
+    int width, height;
+    glfwGetFramebufferSize(window, &width, &height);
+    if (width <= 0 || height <= 0)
+        return;
+
+    glActiveTexture(POSTPROCESS_TEXTURE_UNIT);
+    glBindTexture(GL_TEXTURE_2D, g_PostProcessTexture);
+    glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 0, 0, width, height, 0);
+
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+
+    glUseProgram(g_PostProcessProgramID);
+    glUniform2f(g_PostProcessResolutionUniform, (float)width, (float)height);
+    glUniform1f(g_PostProcessBlurStrengthUniform, 1.0f);
+
+    glBindVertexArray(g_PostProcessVAO);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindVertexArray(0);
+
+    glUseProgram(0);
+    glActiveTexture(GL_TEXTURE0);
+    glEnable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
 }
 
 // Função que pega a matriz M e guarda a mesma no topo da pilha
@@ -1788,6 +1898,8 @@ void FramebufferSizeCallback(GLFWwindow* window, int width, int height)
     // coordinates" (NDC) para "pixel coordinates".  Essa é a operação de
     // "Screen Mapping" ou "Viewport Mapping" vista em aula ({+ViewportMapping2+}).
     glViewport(0, 0, width, height);
+    g_FramebufferWidth = width;
+    g_FramebufferHeight = height;
 
     // Atualizamos também a razão que define a proporção da janela (largura /
     // altura), a qual será utilizada na definição das matrizes de projeção,
@@ -1809,6 +1921,15 @@ void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 {
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
     {
+        if (g_GameState != GAME_STATE_PLAYING)
+        {
+            double cursorX, cursorY;
+            glfwGetCursorPos(window, &cursorX, &cursorY);
+            if (IsGameButtonClicked(window, cursorX, cursorY))
+                StartGame();
+            return;
+        }
+
         // Se o usuário pressionou o botão esquerdo do mouse, guardamos a
         // posição atual do cursor nas variáveis g_LastCursorPosX e
         // g_LastCursorPosY.  Também, setamos a variável
@@ -1959,6 +2080,13 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mod)
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
         glfwSetWindowShouldClose(window, GL_TRUE);
 
+    if (g_GameState != GAME_STATE_PLAYING)
+    {
+        if ((key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER) && action == GLFW_PRESS)
+            StartGame();
+        return;
+    }
+
     // O código abaixo implementa a seguinte lógica:
     //   Se apertar tecla X       então g_AngleX += delta;
     //   Se apertar tecla shift+X então g_AngleX -= delta;
@@ -2035,6 +2163,7 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mod)
     if (key == GLFW_KEY_R && action == GLFW_PRESS)
     {
         LoadShadersFromFiles();
+        LoadPostProcessShadersFromFiles();
         fprintf(stdout,"Shaders recarregados!\n");
         fflush(stdout);
     }
@@ -2057,8 +2186,7 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mod)
             else
             {
                 // Virou para o lado errado → GAME OVER
-                printf("GAME OVER! Virou para o lado errado. Score: %d moedas\n", g_CoinScore);
-                ResetRun(false);
+                EndGame("Virou para o lado errado.");
             }
         }
         else
@@ -2078,9 +2206,7 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mod)
             }
             else
             {
-                // Virou para o lado errado → GAME OVER
-                printf("GAME OVER! Virou para o lado errado. Score: %d moedas\n", g_CoinScore);
-                ResetRun(false);
+                EndGame("Virou para o lado errado.");
             }
         }
         else
@@ -2350,13 +2476,44 @@ void TextRendering_ShowFramesPerSecond(GLFWwindow* window)
 void TextRendering_ShowCoinScore(GLFWwindow* window)
 {
     char buffer[32];
-    int numchars = snprintf(buffer, 32, "Moedas: %d", g_CoinScore);
+    snprintf(buffer, 32, "Moedas: %d", g_CoinScore);
 
     float lineheight = TextRendering_LineHeight(window);
     float charwidth = TextRendering_CharWidth(window);
 
     // Canto superior esquerdo da tela
     TextRendering_PrintString(window, buffer, -1.0f + charwidth, 1.0f - lineheight, 1.5f);
+}
+
+void TextRendering_ShowGameScreen(GLFWwindow* window)
+{
+    float charwidth = TextRendering_CharWidth(window);
+
+    auto printCentered = [&](const std::string& text, float y, float scale)
+    {
+        float width = text.size() * charwidth * scale;
+        TextRendering_PrintString(window, text, -width / 2.0f, y, scale);
+    };
+
+    if (g_GameState == GAME_STATE_MENU)
+    {
+        printCentered("TEMPLE RUN", 0.38f, 2.4f);
+        printCentered("Desvie, pule e colete moedas", 0.18f, 1.1f);
+        printCentered("+--------------------+", -0.05f, 1.4f);
+        printCentered("|       JOGAR        |", -0.15f, 1.4f);
+        printCentered("+--------------------+", -0.25f, 1.4f);
+    }
+    else if (g_GameState == GAME_STATE_GAME_OVER)
+    {
+        char scoreText[64];
+        snprintf(scoreText, sizeof(scoreText), "Moedas coletadas: %d", g_FinalCoinScore);
+
+        printCentered("VOCE MORREU", 0.38f, 2.2f);
+        printCentered(scoreText, 0.18f, 1.4f);
+        printCentered("+--------------------+", -0.05f, 1.4f);
+        printCentered("|  JOGAR NOVAMENTE   |", -0.15f, 1.4f);
+        printCentered("+--------------------+", -0.25f, 1.4f);
+    }
 }
 
 // Função para debugging: imprime no terminal todas informações de um modelo
