@@ -364,6 +364,14 @@ const float PLAYER_SCALE = 0.5f;
 // Velocidade da corrida do player no eixo -Z (unidades de mundo por segundo).
 const float PLAYER_SPEED = 10.0f;
 
+// Animação visual simplificada de corrida para o modelo único do player.
+const float RUN_CYCLE_SPEED     = 10.5f;  // velocidade do ciclo (rad/s)
+const float RUN_BOB_AMPLITUDE   = 0.10f;  // sobe-e-desce do corpo
+const float RUN_SWAY_AMPLITUDE  = 0.07f;  // deslocamento lateral local
+const float RUN_ROLL_AMPLITUDE  = 0.08f;  // inclinação lateral (rad)
+const float RUN_PITCH_AMPLITUDE = 0.10f;  // balanço frente/trás (rad)
+const float RUN_FORWARD_LEAN    = -0.18f; // inclinação constante para frente (rad)
+
 // Marca temporal do último frame, em segundos. Usada para calcular delta time
 // (Δt) e fazer animações independentes do framerate.
 double g_LastFrameTime = 0.0;
@@ -1097,10 +1105,30 @@ int main(int argc, char* argv[])
             float bunny_bbox_min_y = g_VirtualScene["player"].bbox_min.y;
             float ground_offset_y = -bunny_bbox_min_y * PLAYER_SCALE;
             float playerRotY = GetDirectionAngleY(g_TrackSegments[g_CurrentSegment].direction);
+            float runPhase = (float)current_time * RUN_CYCLE_SPEED;
+            float bobOffset = g_PlayerJumping ? 0.0f : fabsf(sinf(runPhase)) * RUN_BOB_AMPLITUDE;
+            float swayOffset = g_PlayerJumping ? 0.0f : sinf(runPhase) * RUN_SWAY_AMPLITUDE;
+            float rollAngle = g_PlayerJumping ? 0.0f : sinf(runPhase) * RUN_ROLL_AMPLITUDE;
+            float pitchAngle = RUN_FORWARD_LEAN;
+
+            if (g_PlayerJumping)
+            {
+                float jumpT = (float)((current_time - g_JumpStartTime) / JUMP_DURATION);
+                jumpT = glm::clamp(jumpT, 0.0f, 1.0f);
+                pitchAngle += (0.5f - jumpT) * 0.22f;
+            }
+            else
+            {
+                pitchAngle += cosf(runPhase * 2.0f) * RUN_PITCH_AMPLITUDE;
+            }
+
             model = Matrix_Translate(g_PlayerPos.x,
-                                     g_PlayerPos.y + ground_offset_y,
+                                     g_PlayerPos.y + ground_offset_y + bobOffset,
                                      g_PlayerPos.z)
                   * Matrix_Rotate_Y(playerRotY + 3.14159265f)
+                  * Matrix_Translate(swayOffset, 0.0f, 0.0f)
+                  * Matrix_Rotate_Z(rollAngle)
+                  * Matrix_Rotate_X(pitchAngle)
                   * Matrix_Scale(PLAYER_SCALE, PLAYER_SCALE, PLAYER_SCALE);
             glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
             glUniform1i(g_object_id_uniform, OBJ_BUNNY);
