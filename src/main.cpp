@@ -220,9 +220,10 @@ const float TRACK_TILE_LENGTH = 4.0f;  // tamanho de cada tile no eixo "forward"
 const float TRACK_TILE_WIDTH  = 6.0f;  // largura do corredor (3 lanes)
 
 // Paredes laterais (estilo Temple Run — alturas variadas)
-const float WALL_THICKNESS    = 5.5f;  // espessura da parede
+const float WALL_THICKNESS    = 1.2f;  // espessura da parede
 const float WALL_MIN_HEIGHT   = 1.5f;  // altura mínima dos segmentos de parede
-const float WALL_MAX_HEIGHT   = 3.0f;  // altura máxima dos segmentos de parede
+const float WALL_MAX_HEIGHT   = 2.5f;  // altura máxima dos segmentos de parede
+const float PLATFORM_DEPTH    = 6.0f;  // profundidade abaixo do chão (visual de ponte/plataforma)
 
 // ===================================================================
 // TEMPLE RUN — Sistema de direções cardinais e curvas 90°.
@@ -297,6 +298,18 @@ const int   GAP_SAFE_END    = 5;    // tiles seguros no final do segmento
 std::vector<TrackSegment> g_TrackSegments;
 int   g_CurrentSegment   = 0;
 float g_SegmentProgress  = 0.0f;  // distância percorrida dentro do segmento atual
+
+bool IsGapTileAtProgress(const TrackSegment& seg, float progress)
+{
+    if (progress < 0.0f)
+        return false;
+
+    int tileIdx = (int) std::floor(progress / TRACK_TILE_LENGTH);
+    if (tileIdx < 0 || tileIdx >= seg.numTiles)
+        return false;
+
+    return tileIdx < (int) seg.gapTiles.size() && seg.gapTiles[tileIdx];
+}
 
 // Constantes de geração de segmentos
 const int   SEGMENT_MIN_TILES = 15;
@@ -430,6 +443,23 @@ GLint g_light_position_uniform; // Posição (world) da luz pontual que segue o 
 
 // Número de texturas carregadas pela função LoadTextureImage()
 GLuint g_NumLoadedTextures = 0;
+
+void ResetRun(bool startIntro = true)
+{
+    g_PlayerPos = glm::vec3(0.0f, 0.0f, 0.0f);
+    g_PlayerLane = 0;
+    g_PlayerJumping = false;
+    g_CoinScore = 0;
+
+    if (startIntro)
+    {
+        g_IntroActive = true;
+        g_IntroTimer  = 0.0f;
+    }
+
+    srand((unsigned)time(NULL));
+    GenerateTrackSegments();
+}
 
 int main(int argc, char* argv[])
 {
@@ -624,14 +654,7 @@ int main(int argc, char* argv[])
             {
                 // GAME OVER — não virou a tempo!
                 printf("GAME OVER! Não virou a tempo. Score: %d moedas\n", g_CoinScore);
-                g_PlayerPos = glm::vec3(0.0f, 0.0f, 0.0f);
-                g_PlayerLane = 0;
-                g_PlayerJumping = false;
-                g_CoinScore = 0;
-                g_IntroActive = true;
-                g_IntroTimer  = 0.0f;
-                srand((unsigned)time(NULL));
-                GenerateTrackSegments();
+                ResetRun(true);
                 curSeg = g_TrackSegments[g_CurrentSegment];
                 fwd = GetForwardVec(curSeg.direction);
                 rgt = GetRightVec(curSeg.direction);
@@ -697,6 +720,17 @@ int main(int argc, char* argv[])
             }
         }
 
+        // Se o tile atual não existe, o player precisa estar em salto para sobreviver.
+        if (!g_IntroActive && IsGapTileAtProgress(curSeg, g_SegmentProgress) && !g_PlayerJumping)
+        {
+            printf("GAME OVER! Caiu no buraco. Score: %d moedas\n", g_CoinScore);
+            ResetRun(true);
+            curSeg = g_TrackSegments[g_CurrentSegment];
+            fwd = GetForwardVec(curSeg.direction);
+            rgt = GetRightVec(curSeg.direction);
+            segLength = curSeg.numTiles * TRACK_TILE_LENGTH;
+        }
+
         // ===================================================================
         // TEMPLE RUN — Testes de colisão (usando posições world dos objetos).
         // ===================================================================
@@ -705,14 +739,7 @@ int main(int argc, char* argv[])
         if (CheckObstacleCollision(g_PlayerPos, g_Obstacles, LANE_WIDTH, OBSTACLE_SCALE/4, 0.5f))
         {
             printf("COLISÃO! Player resetado. Score: %d moedas\n", g_CoinScore);
-            g_PlayerPos = glm::vec3(0.0f, 0.0f, 0.0f);
-            g_PlayerLane = 0;
-            g_PlayerJumping = false;
-            g_CoinScore = 0;
-            g_IntroActive = true;
-            g_IntroTimer  = 0.0f;
-            srand((unsigned)time(NULL));
-            GenerateTrackSegments();
+            ResetRun(true);
         }
 
         // Colisão com moedas: coleta → moeda desaparece, score incrementa.
@@ -904,11 +931,8 @@ int main(int argc, char* argv[])
             }
         }
 
-        // ===================================================================
-        // TEMPLE RUN — Paredes laterais com alturas variadas (estilo Temple Run).
-        // Usa o mesmo plane.obj rotacionado para ficar vertical, textura do chão.
-        // ===================================================================
-        if (!g_IntroActive)
+        // Fecha a plataforma por baixo e nas extremidades expostas, usando a
+        // mesma textura do chão. Isso evita o aspecto oco visto pela câmera.
         {
             int segStart = g_CurrentSegment;
             int segEnd   = std::min(g_CurrentSegment + 2, (int)g_TrackSegments.size());
@@ -916,27 +940,38 @@ int main(int argc, char* argv[])
             for (int si = segStart; si < segEnd; ++si)
             {
                 const TrackSegment& seg = g_TrackSegments[si];
-                glm::vec3 segFwd   = GetForwardVec(seg.direction);
-                glm::vec3 segRight = GetRightVec(seg.direction);
+                glm::vec3 segFwd = GetForwardVec(seg.direction);
                 float rotY = GetDirectionAngleY(seg.direction);
-                // No próximo segmento, pular os primeiros 2 tiles para não
-                // sobrepor a zona de curva do segmento anterior.
-                int iStart = (si > g_CurrentSegment) ? 2 : 0;
-                for (int i = iStart; i < seg.numTiles; ++i)
+
+                for (int i = 0; i < seg.numTiles; ++i)
                 {
-                    if (seg.gapTiles[i]) continue;  // sem parede nos gaps
+                    if (seg.gapTiles[i]) continue;
+
                     glm::vec3 tileCenter = seg.startPos + segFwd * ((float)i * TRACK_TILE_LENGTH);
-                    for (int side = 0; side < 2; ++side)
+
+                    // Face inferior.
+                    model = Matrix_Translate(tileCenter.x, -PLATFORM_DEPTH, tileCenter.z)
+                          * Matrix_Rotate_Y(rotY)
+                          * Matrix_Scale(TRACK_TILE_WIDTH * 0.5f, 1.0f, TRACK_TILE_LENGTH * 0.5f);
+                    glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+                    glUniform1i(g_object_id_uniform, OBJ_PLANE);
+                    DrawVirtualObject("the_plane");
+
+                    bool startExposed = (i == 0) || seg.gapTiles[i - 1];
+                    bool endExposed   = (i == seg.numTiles - 1) || seg.gapTiles[i + 1];
+
+                    // Faces verticais no início/fim do caminho e nas bordas dos buracos.
+                    for (int edge = 0; edge < 2; ++edge)
                     {
-                        float wh = WallHeight(si, i, side);
-                        float sign = (side == 0) ? -1.0f : 1.0f;
-                        glm::vec3 wallPos = tileCenter + segRight * (sign * TRACK_TILE_WIDTH * 0.5f);
-                        // Plane.obj é 2x2 no XZ. Rotate_Z(90°) coloca no plano vertical.
-                        // Scale: X → altura/2, Y → espessura, Z → comprimento/2.
-                        model = Matrix_Translate(wallPos.x, wh * 0.5f, wallPos.z)
+                        if ((edge == 0 && !startExposed) || (edge == 1 && !endExposed))
+                            continue;
+
+                        float edgeOffset = (edge == 0 ? -0.5f : 0.5f) * TRACK_TILE_LENGTH;
+                        glm::vec3 edgePos = tileCenter + segFwd * edgeOffset;
+                        model = Matrix_Translate(edgePos.x, -PLATFORM_DEPTH * 0.5f, edgePos.z)
                               * Matrix_Rotate_Y(rotY)
-                              * Matrix_Rotate_Z(1.5707963f)
-                              * Matrix_Scale(wh * 0.5f, WALL_THICKNESS * 0.5f, TRACK_TILE_LENGTH * 0.5f);
+                              * Matrix_Rotate_X(1.5707963f)
+                              * Matrix_Scale(TRACK_TILE_WIDTH * 0.5f, 0.01f, PLATFORM_DEPTH * 0.5f);
                         glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
                         glUniform1i(g_object_id_uniform, OBJ_PLANE);
                         DrawVirtualObject("the_plane");
@@ -947,8 +982,81 @@ int main(int argc, char* argv[])
         }
 
         // ===================================================================
+        // TEMPLE RUN — Paredes laterais com alturas variadas (estilo Temple Run).
+        // Cada parede é composta de 3 planos: face interna, topo e face externa,
+        // criando volume real. Também renderiza laterais abaixo do chão.
+        // ===================================================================
+            int segStart = g_CurrentSegment;
+            int segEnd   = std::min(g_CurrentSegment + 2, (int)g_TrackSegments.size());
+            glDisable(GL_CULL_FACE);
+            for (int si = segStart; si < segEnd; ++si)
+            {
+                const TrackSegment& seg = g_TrackSegments[si];
+                glm::vec3 segFwd   = GetForwardVec(seg.direction);
+                glm::vec3 segRight = GetRightVec(seg.direction);
+                float rotY = GetDirectionAngleY(seg.direction);
+                int iStart = (si > g_CurrentSegment) ? 2 : 0;
+                for (int i = iStart; i < seg.numTiles; ++i)
+                {
+                    if (seg.gapTiles[i]) continue;
+                    glm::vec3 tileCenter = seg.startPos + segFwd * ((float)i * TRACK_TILE_LENGTH);
+                    for (int side = 0; side < 2; ++side)
+                    {
+                        float wh = WallHeight(si, i, side);
+                        float sign = (side == 0) ? -1.0f : 1.0f;
+                        float halfTrack = TRACK_TILE_WIDTH * 0.5f;
+                        float halfThick = WALL_THICKNESS * 0.5f;
+                        glm::vec3 wallCenter = tileCenter + segRight * (sign * (halfTrack + halfThick));
+
+                        // Face interna (voltada para o corredor)
+                        glm::vec3 innerPos = tileCenter + segRight * (sign * halfTrack);
+                        model = Matrix_Translate(innerPos.x, wh * 0.5f, innerPos.z)
+                              * Matrix_Rotate_Y(rotY)
+                              * Matrix_Rotate_Z(1.5707963f)
+                              * Matrix_Scale(wh * 0.5f, 0.01f, TRACK_TILE_LENGTH * 0.5f);
+                        glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+                        glUniform1i(g_object_id_uniform, OBJ_PLANE);
+                        DrawVirtualObject("the_plane");
+
+                        // Face externa
+                        glm::vec3 outerPos = tileCenter + segRight * (sign * (halfTrack + WALL_THICKNESS));
+                        model = Matrix_Translate(outerPos.x, wh * 0.5f, outerPos.z)
+                              * Matrix_Rotate_Y(rotY)
+                              * Matrix_Rotate_Z(1.5707963f)
+                              * Matrix_Scale(wh * 0.5f, 0.01f, TRACK_TILE_LENGTH * 0.5f);
+                        glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+                        glUniform1i(g_object_id_uniform, OBJ_PLANE);
+                        DrawVirtualObject("the_plane");
+
+                        // Preenchimento horizontal: camadas a cada 0.5 unidades
+                        // de Y=0 até Y=wh, incluindo topo. Cria bloco sólido.
+                        for (float yy = 0.0f; yy <= wh; yy += 0.5f)
+                        {
+                            model = Matrix_Translate(wallCenter.x, yy, wallCenter.z)
+                                  * Matrix_Rotate_Y(rotY)
+                                  * Matrix_Scale(WALL_THICKNESS * 0.5f, 1.0f, TRACK_TILE_LENGTH * 0.5f);
+                            glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+                            glUniform1i(g_object_id_uniform, OBJ_PLANE);
+                            DrawVirtualObject("the_plane");
+                        }
+
+                        // Lateral abaixo do chão (profundidade da plataforma)
+                        model = Matrix_Translate(innerPos.x, -PLATFORM_DEPTH * 0.5f, innerPos.z)
+                              * Matrix_Rotate_Y(rotY)
+                              * Matrix_Rotate_Z(1.5707963f)
+                              * Matrix_Scale(PLATFORM_DEPTH * 0.5f, 0.01f, TRACK_TILE_LENGTH * 0.5f);
+                        glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+                        glUniform1i(g_object_id_uniform, OBJ_PLANE);
+                        DrawVirtualObject("the_plane");
+                    }
+                }
+            }
+            glEnable(GL_CULL_FACE);
+
+        // ===================================================================
         // TEMPLE RUN — Desenho dos obstáculos (filtrado por segmento).
         // ===================================================================
+        if (!g_IntroActive)
         {
             for (const Obstacle& o : g_Obstacles)
             {
@@ -965,6 +1073,7 @@ int main(int argc, char* argv[])
         // ===================================================================
         // TEMPLE RUN — Desenho das moedas (filtrado por segmento).
         // ===================================================================
+        if (!g_IntroActive)
         {
             float coin_angle = (float)current_time * COIN_ROT_SPEED;
             for (const Coin& c : g_Coins)
@@ -1921,12 +2030,7 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mod)
             {
                 // Virou para o lado errado → GAME OVER
                 printf("GAME OVER! Virou para o lado errado. Score: %d moedas\n", g_CoinScore);
-                g_PlayerPos = glm::vec3(0.0f, 0.0f, 0.0f);
-                g_PlayerLane = 0;
-                g_PlayerJumping = false;
-                g_CoinScore = 0;
-                srand((unsigned)time(NULL));
-                GenerateTrackSegments();
+                ResetRun(false);
             }
         }
         else
@@ -1948,12 +2052,7 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mod)
             {
                 // Virou para o lado errado → GAME OVER
                 printf("GAME OVER! Virou para o lado errado. Score: %d moedas\n", g_CoinScore);
-                g_PlayerPos = glm::vec3(0.0f, 0.0f, 0.0f);
-                g_PlayerLane = 0;
-                g_PlayerJumping = false;
-                g_CoinScore = 0;
-                srand((unsigned)time(NULL));
-                GenerateTrackSegments();
+                ResetRun(false);
             }
         }
         else
@@ -2403,4 +2502,3 @@ void PrintObjModelInfo(ObjModel* model)
 
 // set makeprg=cd\ ..\ &&\ make\ run\ >/dev/null
 // vim: set spell spelllang=pt_br :
-
