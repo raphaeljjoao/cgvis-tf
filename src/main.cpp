@@ -147,7 +147,7 @@ void TextRendering_ShowModelViewProjection(GLFWwindow* window, glm::mat4 project
 void TextRendering_ShowEulerAngles(GLFWwindow* window);
 void TextRendering_ShowProjection(GLFWwindow* window);
 void TextRendering_ShowFramesPerSecond(GLFWwindow* window);
-void TextRendering_ShowCoinScore(GLFWwindow* window);
+void TextRendering_ShowRunStats(GLFWwindow* window);
 void TextRendering_ShowGameScreen(GLFWwindow* window);
 
 // Funções callback para comunicação com o sistema operacional e interação do
@@ -435,6 +435,9 @@ const float FIRST_SEGMENT_SAFE_DISTANCE = PLAYER_SPEED * INTRO_DURATION + 12.0f;
 
 std::vector<Coin> g_Coins;
 int g_CoinScore = 0;  // pontuação de moedas coletadas
+float g_DistanceMeters = 0.0f;
+float g_FinalDistanceMeters = 0.0f;
+float g_SessionBestDistanceMeters = 0.0f;
 
 const float COIN_SPACING = 6.0f;    // espaçamento entre moedas (ao longo do segmento)
 const float COIN_SCALE   = 0.30f;   // escala do modelo coin.obj
@@ -493,6 +496,7 @@ void ResetRun(bool startIntro = true)
     g_PlayerLane = 0;
     g_PlayerJumping = false;
     g_CoinScore = 0;
+    g_DistanceMeters = 0.0f;
     g_TurnPending = false;
     g_TurnExecuted = false;
 
@@ -516,10 +520,14 @@ void StartGame()
 void EndGame(const char* reason)
 {
     g_FinalCoinScore = g_CoinScore;
+    g_FinalDistanceMeters = g_DistanceMeters;
+    if (g_FinalDistanceMeters > g_SessionBestDistanceMeters)
+        g_SessionBestDistanceMeters = g_FinalDistanceMeters;
     g_GameState = GAME_STATE_GAME_OVER;
     g_IntroActive = false;
     g_LeftMouseButtonPressed = false;
-    printf("GAME OVER! %s Score: %d moedas\n", reason, g_FinalCoinScore);
+    printf("GAME OVER! %s Score: %d moedas, %.0f metros\n",
+           reason, g_FinalCoinScore, g_FinalDistanceMeters);
 }
 
 bool IsGameButtonClicked(GLFWwindow* window, double cursorX, double cursorY)
@@ -531,6 +539,10 @@ bool IsGameButtonClicked(GLFWwindow* window, double cursorX, double cursorY)
 
     float x = 2.0f * (float)cursorX / (float)width - 1.0f;
     float y = 1.0f - 2.0f * (float)cursorY / (float)height;
+
+    if (g_GameState == GAME_STATE_GAME_OVER)
+        return x >= -0.38f && x <= 0.38f && y >= -0.56f && y <= -0.28f;
+
     return x >= -0.38f && x <= 0.38f && y >= -0.30f && y <= -0.02f;
 }
 
@@ -723,6 +735,8 @@ int main(int argc, char* argv[])
             // ===================================================================
           if (!g_IntroActive)
           {
+            g_DistanceMeters += PLAYER_SPEED * delta_time;
+
             float distToEnd = segLength - g_SegmentProgress;
 
             if (distToEnd <= TURN_WINDOW_DIST && !g_TurnExecuted)
@@ -1307,7 +1321,7 @@ int main(int argc, char* argv[])
             TextRendering_ShowEulerAngles(window);
             TextRendering_ShowProjection(window);
             TextRendering_ShowFramesPerSecond(window);
-            TextRendering_ShowCoinScore(window);
+            TextRendering_ShowRunStats(window);
         }
         else
         {
@@ -2585,16 +2599,22 @@ void TextRendering_ShowFramesPerSecond(GLFWwindow* window)
     TextRendering_PrintString(window, buffer, 1.0f-(numchars + 1)*charwidth, 1.0f-lineheight, 1.0f);
 }
 
-void TextRendering_ShowCoinScore(GLFWwindow* window)
+void TextRendering_ShowRunStats(GLFWwindow* window)
 {
-    char buffer[32];
-    snprintf(buffer, 32, "Moedas: %d", g_CoinScore);
+    char coinsText[32];
+    char distanceText[32];
+    char bestText[32];
+    snprintf(coinsText, sizeof(coinsText), "Moedas: %d", g_CoinScore);
+    snprintf(distanceText, sizeof(distanceText), "Metros: %.0f m", g_DistanceMeters);
+    snprintf(bestText, sizeof(bestText), "Recorde: %.0f m", g_SessionBestDistanceMeters);
 
     float lineheight = TextRendering_LineHeight(window);
     float charwidth = TextRendering_CharWidth(window);
 
     // Canto superior esquerdo da tela
-    TextRendering_PrintString(window, buffer, -1.0f + charwidth, 1.0f - lineheight, 1.5f);
+    TextRendering_PrintString(window, coinsText, -1.0f + charwidth, 1.0f - lineheight, 1.3f);
+    TextRendering_PrintString(window, distanceText, -1.0f + charwidth, 1.0f - 2.3f * lineheight, 1.3f);
+    TextRendering_PrintString(window, bestText, -1.0f + charwidth, 1.0f - 3.6f * lineheight, 1.3f);
 }
 
 void TextRendering_ShowGameScreen(GLFWwindow* window)
@@ -2618,13 +2638,19 @@ void TextRendering_ShowGameScreen(GLFWwindow* window)
     else if (g_GameState == GAME_STATE_GAME_OVER)
     {
         char scoreText[64];
+        char distanceText[64];
+        char bestText[64];
         snprintf(scoreText, sizeof(scoreText), "Moedas coletadas: %d", g_FinalCoinScore);
+        snprintf(distanceText, sizeof(distanceText), "Distancia: %.0f m", g_FinalDistanceMeters);
+        snprintf(bestText, sizeof(bestText), "Recorde da sessao: %.0f m", g_SessionBestDistanceMeters);
 
         printCentered("VOCE MORREU", 0.38f, 2.2f);
-        printCentered(scoreText, 0.18f, 1.4f);
-        printCentered("+--------------------+", -0.05f, 1.4f);
-        printCentered("|  JOGAR NOVAMENTE   |", -0.15f, 1.4f);
-        printCentered("+--------------------+", -0.25f, 1.4f);
+        printCentered(scoreText, 0.18f, 1.2f);
+        printCentered(distanceText, 0.04f, 1.2f);
+        printCentered(bestText, -0.10f, 1.2f);
+        printCentered("+--------------------+", -0.31f, 1.4f);
+        printCentered("|  JOGAR NOVAMENTE   |", -0.41f, 1.4f);
+        printCentered("+--------------------+", -0.51f, 1.4f);
     }
 }
 
