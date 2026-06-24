@@ -1,172 +1,101 @@
 # Prompts utilizados para geração de código via IA
 
-**Ferramenta:** Claude (Anthropic) via Cline/VS Code  
-**Tipo:** Todo o código do jogo (exceto o template base fornecido pelo professor) foi gerado por IA.
+Este arquivo registra os prompts associados aos commits cujo título começa com
+`[IA]`, conforme solicitado nas regras do trabalho. O texto abaixo foi extraído
+das mensagens de commit no histórico do Git.
 
----
+## Commits com `[IA]`
 
-## Commits gerados por IA
+### `65b7366` — Remover cena demo
 
-### `65b7366` — Remover cena demo (Passo 1)
+**PROMPT:** "remova a cena demo"
+**COMMIT:** `65b7366`
 
-**PROMPT:** "faça somente o ponto 1 de limpar a cena demo"
+### Criar corredor finito
 
-Removeu o carregamento dos modelos demo (sphere, bunny, plane) e suas chamadas de desenho no loop de renderização. Atualizou o título da janela para "INF01047 - Temple Run - 334042 / 333315". Manteve a infraestrutura (shaders, callbacks, texturas) intacta para os próximos passos.
+**PROMPT:** "crie um corredor finito estilo temple run"
+**COMMIT:** `6235be9`
 
----
+### Câmera em terceira pessoa
 
-### `6235be9` — Criar corredor finito (Passo 2)
+**PROMPT:** "coloque uma camera em terceira pessoa seguindo o jogador e prepare o terreno para camera livre"
+**COMMIT:** `2ae357a`
 
-**PROMPT:** "agora é hora de criar o corredor finito"
+### Player placeholder
 
-Recarregou `plane.obj` como tile do corredor. Adicionou constantes `TRACK_NUM_TILES=50`, `TRACK_TILE_LENGTH=4`, `TRACK_TILE_WIDTH=6`. Criou loop de instanciamento de 50 tiles com `Matrix_Translate` + `Matrix_Scale`. Ajustou `farplane` para -400 e câmera orbital para o centro do corredor. Atende ao requisito "Instâncias de objetos" do SPEC.md.
+**PROMPT:** coloque um player placeholder usando bunn
+**COMMIT:** `c078808`
 
----
+### Movimento automático para frente
 
-### `2ae357a` — Câmera em terceira pessoa (Passo 3)
+**PROMPT:** faça o movimento automático do player com Δt 
+**COMMIT:** `843c342`
 
-**PROMPT:** "agora faça o passo 3 da camera"
+### Troca de lanes
 
-Adicionou `g_PlayerPos` (vec3), `g_UseFreeCamera` (bool), `CAMERA_TPP_OFFSET=(0,4,8)`, `CAMERA_TPP_LOOKAT_OFFSET=(0,1,-3)`. Substituiu câmera orbital por `if/else` (3ª pessoa vs livre). Câmera segue `g_PlayerPos` automaticamente. Atende ao requisito "Diferentes tipos de câmeras" do SPEC.md.
+**PROMPT:** adicione movimento de troca de lanes usando A/D e setas
+**COMMIT:** `464a7a2`
 
----
 
-### `c078808` — Player placeholder (Passo 4)
+### Salto com Bézier + Obstáculos
 
-**PROMPT:** "faça o passo 4" (player placeholder bunny)
+**PROMPT:** faça o player saltar usando a curva de bezier para isso, também instancie os obstaculos e defina um espaçamento mediano para eles, use the sphere para isso
+**COMMIT:** `e79d117`
 
-Carregou `bunny.obj` como placeholder do personagem. Adicionou `PLAYER_SCALE`. Desenhou bunny em `g_PlayerPos` com offset Y calculado via bounding box para alinhar base ao chão. Atende ao requisito "Malhas poligonais complexas" do SPEC.md.
+### Moedas com rotação
 
----
+**PROMPT:** faça moedas para serem coletadas e com rotação animada
+**COMMIT:** `4d6aee6247857fcedae3fe1eec7195f9d6866539`
 
-### `843c342` — Movimento automático para frente (Passo 5)
+### Testes de colisão (Passo 10)
 
-**PROMPT:** "faça o proximo passo" (movimento automático com Δt)
-
-Adicionou `PLAYER_SPEED=8`, `g_LastFrameTime`. Calcula `delta_time` via `glfwGetTime()`. Atualiza `g_PlayerPos.z -= PLAYER_SPEED * delta_time` a cada frame. Loop infinito reseta Z=0 ao fim do corredor. Atende ao requisito "Animações baseadas no tempo (Δt)" do SPEC.md.
-
----
-
-### `464a7a2` — Troca de lanes (Passo 6)
-
-**PROMPT:** "proximo passo" (troca de lanes com A/D e setas)
-
-Adicionou `LANE_WIDTH=2`, `LANE_CHANGE_SPEED=12`, `g_PlayerLane`. Interpolação linear suave em X com delta_time. Handlers de teclado A/D e ←/→ no `KeyCallback`. Player não sai do corredor (clamp -1 a +1). Atende aos requisitos "Transformações geométricas controladas pelo usuário" e "Animações baseadas em Δt" do SPEC.md.
-
----
-
-### `e79d117` — Salto com Bézier + Obstáculos (Passos 7 e 8)
-
-**PROMPT (Passo 7):** "proximo passo" (salto com curva de Bézier cúbica)
-
-Implementou função `BezierCubic(t, p0, p1, p2, p3)` com fórmula B(t) = (1-t)³P₀ + 3(1-t)²tP₁ + 3(1-t)t²P₂ + t³P₃. Pontos de controle P0=0, P1=4, P2=4, P3=0 (arco simétrico). Duração 0.7s. Tecla W/↑ dispara salto (single-jump). Atende ao requisito "Movimentação com curva Bézier cúbica" do SPEC.md.
-
-**PROMPT (Passo 8):** "proximo passo" (obstáculos instanciados, espaçamento denso)
-
-Carregou `sphere.obj`. Criou struct `Obstacle` com lane/z/scale. Geração determinística com `srand(42)`, espaçamento 10 unidades em Z. Cada obstáculo é uma instância de `the_sphere` posicionada em lane aleatória. Atende ao requisito "Instâncias de objetos" do SPEC.md.
-
----
-
-### (pendente commit) — Moedas com rotação (Passo 9)
-
-**PROMPT:** "passo 9" (moedas coletáveis com rotação contínua)
-
-Criou struct `Coin` com lane/z/collected. Constantes `COIN_SCALE=0.3`, `COIN_Y=1.2`, `COIN_ROT_SPEED=3.0 rad/s`, `COIN_SPACING_Z=6`. Geração determinística após obstáculos. Desenho com `Matrix_Rotate_Y(current_time * COIN_ROT_SPEED)` para rotação contínua animada. Campo `collected` preparado para Passo 10 (colisão). Atende aos requisitos "Instâncias de objetos" e "Animações baseadas em Δt: rotação das moedas" do SPEC.md.
-
----
-
-### (pendente commit) — Testes de colisão (Passo 10)
-
-**PROMPT:** "passo 10" (testes de colisão obstáculo×player e moeda×player)
-
-Modularizou os testes de intersecção em arquivos separados (`include/collisions.h` + `src/collisions.cpp`) movendo as structs `Obstacle` e `Coin` para o header e expondo duas funções:
-
-- `CheckObstacleCollision(playerPos, obstacles, laneWidth, scale, jumpClearance)` — testa intersecção **esfera×esfera (AABB esférica)** entre o player (ponto na lane) e cada obstáculo. Usa `jumpClearance` como altura mínima do salto para considerar que o player passou por cima (se `playerPos.y > jumpClearance`, ignora a colisão).
-- `CheckCoinCollision(playerPos, coins, laneWidth, coinY, coinScale, pickupRadius)` — itera as moedas não coletadas, calcula distância 3D ao player, e se ≤ `pickupRadius` marca `c.collected = true` e retorna a quantidade de moedas pegas no frame.
-
-No `main.cpp`, dentro do loop principal:
-- Após atualizar a posição do player, chama `CheckObstacleCollision`. Se `true`, **reseta** o player para a origem (`g_PlayerPos = vec3(0)`, `g_PlayerLane = 0`, `g_PlayerJumping = false`), zera `g_CoinScore` e re-marca todas as moedas como `collected = false` (jogo recomeça).
-- Soma `CheckCoinCollision` em `g_CoinScore` para acumular o total coletado.
-- Imprime `printf("COLISÃO! ...")` ao morrer para feedback no terminal.
-
-Adicionado `src/collisions.cpp` à linha de compilação do `Makefile.macOS`. A geração das moedas teve o seed e o loop ajustados para garantir distribuição determinística reproduzível em testes (`srand(42)`).
-
-Atende ao requisito **"Testes de intersecção"** do SPEC.md ("A colisão do personagem com um objeto causa a derrota e a colisão de um personagem com uma moeda gera pontos.").
-
----
-
-### (pendente commit) — Iluminação Blinn-Phong em todos os objetos (Passo 11)
-
-**PROMPT:** "preciso que agora seja feita a iluminação, Modelos de Iluminação em todos os objetos"
-
-**Decisões com o usuário (modo plan):**
-- Manter texturas atuais como Kd (texturas oficiais virão depois);
-- Luz pontual deve **seguir o player** (efeito de "tocha");
-- Moedas devem apenas **parecer** brilhantes (cor emissiva), sem afetar outros objetos.
-
-**Mudanças no `src/shader_fragment.glsl` (reescrito):**
-- Adicionado novo identificador `#define COIN 3` (separar moeda de obstáculo, que ambos compartilhavam `OBJ_SPHERE`).
-- Novo uniform `uniform vec4 light_position_world` (posição da tocha em world space).
-- Implementado **Blinn-Phong** com **duas fontes** + ambiente global + termo emissivo:
-  - **Luz direcional** (sol): direção `vec4(1, 1, 0.5, 0)`, cor `vec3(1.0, 0.95, 0.85)`.
-  - **Luz pontual** (tocha): cor `vec3(1.0, 0.8, 0.5)`, com atenuação `1/(1 + 0.05·d + 0.01·d²)` em função da distância ao fragmento.
-  - **Luz ambiente** global: `Ia = vec3(0.25, 0.25, 0.30)`.
-- Coeficientes `Kd` (textura), `Ks`, `Ka = Kd*α`, `Ke` (emissão) e `q` (expoente especular) **diferenciados por `object_id`**:
-  | Objeto | Ks | q | Ke | Característica |
-  |---|---|---|---|---|
-  | `PLANE` | 0.05 | 8 | 0 | Chão fosco |
-  | `BUNNY` | 0.30 | 32 | 0 | Player com leve brilho |
-  | `SPHERE` (obstáculo) | 0.50 | 64 | 0 | Esfera bem reflexiva |
-  | `COIN` | 0.90 (dourado) | 128 | `vec3(0.6, 0.5, 0.1)` | Brilhante + emissivo |
-- Equação final: `color = Ka·Ia + Kd·(I_dir·lambert_dir + I_point·lambert_point·att) + Ks·(I_dir·spec_dir + I_point·spec_point·att) + Ke`.
-- `lambert_*` via `max(0, dot(n, l))`; `spec_*` via Blinn-Phong com `h = normalize(l + v)` e `pow(max(0, dot(n, h)), q)`. Especular só é somado quando há luz incidente (`lambert > 0`), evitando highlights "fantasmas".
-- Correção gamma final preservada (`pow(color, 1/2.2)`).
-
-**Mudanças no `src/main.cpp`:**
-- `#define OBJ_COIN 3`, mantendo coerência com o shader.
-- `GLint g_light_position_uniform` declarado; capturado em `LoadShadersFromFiles()` via `glGetUniformLocation(..., "light_position_world")`.
-- A cada frame, antes do desenho dos objetos: envia `light_pos = vec4(g_PlayerPos.x, g_PlayerPos.y + 3.0, g_PlayerPos.z + 2.0, 1.0)` (acima e ligeiramente atrás do player) com `glUniform4f`.
-- No bloco de desenho das moedas, trocado `OBJ_SPHERE` por `OBJ_COIN` para que recebam o material dourado emissivo.
-
-A tecla **R** (recarregar shaders) continua disponível e foi muito usada para iterar nos parâmetros sem recompilar.
-
-Atende ao requisito **"Modelos de Iluminação em todos os objetos"** do SPEC.md ("Possuirá luz ambiente para iluminação global e luz pontual para elementos como fogo e moedas.").
-
----
-
-### (pendente commit) — Toggle de câmera (Passo 12)
+**PROMPT:** faça o teste de colisão entre a moeda (benefico) e obstaculos (player morre), as colisões devem ser feitas em um arquivo separado collisions.cpp, também faça o modelo de iluminação para todos objetos e player.
+**COMMIT:** `7c2ff8c2fbf7cbc55818359c28e285bcf76b3a39`
 
 **PROMPT:** "preciso que exista um toogle para mudar a perspectiva de camera para camera livre, deve ter algo pré planejado nos arquivos já"
+**COMMIT:** `7c2ff8c2fbf7cbc55818359c28e285bcf76b3a39`
 
-**Decisões com o usuário (modo plan):**
-- Tecla **C** (Camera) para alternar entre 3ª pessoa e câmera livre;
-- **Sem pausa** ao entrar em câmera livre — o player continua correndo, permitindo inspecionar a cena enquanto o jogo roda.
 
-A infraestrutura já estava pronta desde o **Passo 3**: a flag `g_UseFreeCamera`, o `if/else` no loop principal escolhendo entre câmera em 3ª pessoa (segue player) e câmera livre orbital (controlada pelo mouse via `g_CameraTheta/Phi/Distance`), e o cálculo do `track_center` para a livre. Faltava apenas conectar a tecla.
+### Mapa infinito, com alteração de orientação
+**PROMPT:** tem como fazer algo no estilo temple run, onde o personagem está sempre correndo para frente e em algum momento o mapa muda de direção para esquerda/direita e ele deve virar junto senão perde?
+**COMMIT:** `ca350f8a1f31c67fa71207f6ab92fd3fe49db0c2`
 
-**Mudanças no `src/main.cpp`:**
-- Em `KeyCallback`, adicionado handler para `GLFW_KEY_C`:
-  ```cpp
-  if (key == GLFW_KEY_C && action == GLFW_PRESS)
-  {
-      g_UseFreeCamera = !g_UseFreeCamera;
-      fprintf(stdout, "Camera: %s\n",
-              g_UseFreeCamera ? "LIVRE (mouse orbital)" : "TERCEIRA PESSOA");
-      fflush(stdout);
-  }
-  ```
-- Comentário `"Será habilitada via toggle no Passo 12"` no bloco de seleção de câmera atualizado para refletir que agora a tecla C faz a alternância e que o jogo NÃO pausa por design.
-- Comentário da declaração de `g_UseFreeCamera` atualizado de `"a câmera livre será habilitada no Passo 12"` para `"Alterna ao pressionar a tecla C (veja KeyCallback)"`.
+### Paredes laterais e novos objetos
 
-**Como usar:**
-- **C** — toggle 3ª pessoa ↔ livre
-- Em modo livre: arrastar com botão esquerdo do mouse para orbitar; rodinha do mouse para zoom
-- Player continua correndo no fundo, possibilitando ver colisões/coletas de moedas de outros ângulos
+**PROMPT:** "é possivel fazer uma parede com partes mais altas e mais baixas ao lado da pista, similar com a do temple run, pode usar o mesmo png do chão. [EU] adicionar objs novos"
+**COMMIT:** `0001d03`
 
-Atende ao requisito **"Diferentes tipos de câmeras"** do SPEC.md ("Implementação de câmera em terceira pessoa durante o jogo e uma câmera livre para observar o cenário.") — em conjunto com o Passo 3, que já havia montado a infraestrutura.
+### Introdução cinematográfica
 
----
+**PROMPT:** "quero que nos primeiros segundos a camera comece frontal e gire até ficar focada no personagem, adicione instancias do enemy.obj nesse inicio, para ficar igual a abertura do jogo temple run mesmo"
+**COMMIT:** `4811635`
 
-## Nota
+### Intro segura, paredes e profundidade do chão
 
-Os commits anteriores a `65b7366` (`c0e4b7d`, `7a3b61c`, `36ca731`, `6428874`, `e09be4e`, `53d2990`) são do template base do professor e da especificação — **não foram gerados por IA**.
+**PROMPT:** "ajuste a introdução para não ter obstaculos e moedas, ajuste as paredes e a profundidade do chão do mapa"
+**COMMIT:** `8090c66`
+
+### Animação visual do personagem
+
+**PROMPT:** "sei que estou com um player obj fixo, faça as alterações necessarias pra deixar a animação dele menos estatica"
+**COMMIT:** `44a5bb1`
+
+### Tela inicial e tela final com blur
+
+**PROMPT:** "Faça uma tela inicial e final com blur, com botão para jogar e na final com quantas moedas foram pegas"
+**COMMIT:** `b1deb8b`
+
+### Fogo mais realista
+
+**PROMPT:** "faça o fogo parecer mais brilhante e mais real, tambem aumente seu tamanho sem afetar a colisão"
+**COMMIT:** `109b822`
+
+### Obstáculo de tronco deitado
+
+**PROMPT:** "adicionei arquivos relacionados com data/treeTripDownHorz_prefab.obj, quero que seja um obstaculo de tronco deitado, que ocupe duas lanes e ocorra alternadamente com o fogo, mas não tão proximo muitas vezes para permitir a jogabilidade"
+**COMMIT:** `b53ced7`
+
+### Contagem de metros e recorde da sessão
+
+**PROMPT:** "tem como fazer uma contagem de metros e no final mostrar qual foi o recorde da sessão?"
+**COMMIT:** `46573e1`
