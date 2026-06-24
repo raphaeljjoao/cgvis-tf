@@ -25,6 +25,8 @@ uniform mat4 projection;
 #define COIN   3
 #define ENEMY  4
 #define WATER  5
+#define TREE   6
+#define TREE_CORE 7
 uniform int object_id;
 
 // Parâmetros da axis-aligned bounding box (AABB) do modelo
@@ -38,6 +40,7 @@ uniform sampler2D TextureImage2;
 uniform sampler2D TextureImage3;
 uniform sampler2D TextureImage4;
 uniform sampler2D TextureImage5;
+uniform sampler2D TextureImage6;
 
 // Posição (em world space) da luz pontual que segue o player (tipo "tocha").
 // Setada por frame em main.cpp.
@@ -186,6 +189,28 @@ void main()
         Ka = Kd * 0.35;
         Ke = Kd * 0.05;
         q  = 48.0;
+    }
+    else if ( object_id == TREE )
+    {
+        U = texcoords.x;
+        V = texcoords.y;
+
+        Kd = texture(TextureImage6, vec2(U,V)).rgb;
+        Ks = vec3(0.12, 0.10, 0.07);
+        Ka = Kd * 0.25;
+        Ke = vec3(0.0);
+        q  = 16.0;
+    }
+    else if ( object_id == TREE_CORE )
+    {
+        U = 0.68 + fract(texcoords.x) * 0.27;
+        V = 0.12 + fract(texcoords.y) * 0.72;
+
+        Kd = texture(TextureImage6, vec2(U,V)).rgb;
+        Ks = vec3(0.10, 0.08, 0.05);
+        Ka = Kd * 0.28;
+        Ke = vec3(0.0);
+        q  = 12.0;
     }
     else
     {

@@ -19,6 +19,11 @@
 
 #include "collisions.h"
 
+static float DotXZ(glm::vec3 a, glm::vec3 b)
+{
+    return a.x * b.x + a.z * b.z;
+}
+
 bool CheckObstacleCollision(glm::vec3 playerPos,
                             const std::vector<Obstacle>& obstacles,
                             float laneWidth,
@@ -27,6 +32,25 @@ bool CheckObstacleCollision(glm::vec3 playerPos,
 {
     for (const Obstacle& o : obstacles)
     {
+        if (o.type == OBSTACLE_LOG)
+        {
+            glm::vec3 delta = playerPos - o.worldPos;
+            float forwardDistance = std::fabs(DotXZ(delta, o.worldForward));
+            float lateralDistance = std::fabs(DotXZ(delta, o.worldRight));
+
+            float halfDepth = 0.65f + playerRadius;
+            float halfWidth = laneWidth * 0.5f + playerRadius;
+
+            if (forwardDistance < halfDepth &&
+                lateralDistance < halfWidth &&
+                playerPos.y < 0.9f)
+            {
+                return true;
+            }
+
+            continue;
+        }
+
         // Centro do obstáculo no mundo (usando worldPos pré-calculado)
         float ox = o.worldPos.x;
         float oz = o.worldPos.z;

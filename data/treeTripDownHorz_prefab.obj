@@ -1,7 +1,7 @@
 # Noesis .obj export.
 #
 mtllib treeTripDownHorz_prefab.mtl
-g
+g treeTripDownHorz_prefab
 v  -5.481691 -0.132928 -9.146728
 v  -2.736084 1.389174 2.751404
 v  -1.575317 2.477665 3.667969

@@ -13,13 +13,22 @@
 //    a derrota e a colisão de um personagem com uma moeda gera pontos."
 // ===================================================================
 
+enum ObstacleType
+{
+    OBSTACLE_FIRE,
+    OBSTACLE_LOG
+};
+
 // Structs compartilhadas entre main.cpp e collisions.cpp
 struct Obstacle
 {
     int   lane;       // -1 (esq), 0 (centro), +1 (dir)
     float z;          // posição em Z no mundo (negativa) — legacy
     float scale;      // raio da esfera placeholder
+    ObstacleType type;
     glm::vec3 worldPos;  // posição calculada no mundo (com direção do segmento)
+    glm::vec3 worldForward; // direção longitudinal da pista naquele ponto
+    glm::vec3 worldRight;   // direção lateral da pista naquele ponto
     int segmentIdx;      // índice do segmento ao qual pertence
 };
 

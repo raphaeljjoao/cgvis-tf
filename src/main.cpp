@@ -217,6 +217,8 @@ float g_CameraDistance = 25.0f; // Distância da câmera para o ponto de lookat
 #define OBJ_COIN   3
 #define OBJ_ENEMY  4
 #define OBJ_WATER  5
+#define OBJ_TREE   6
+#define OBJ_TREE_CORE 7
 
 // Geometria do corredor:
 //   - Cada tile é uma instância do plane.obj (que originalmente é 2x2 no plano XZ),
@@ -330,7 +332,7 @@ void GenerateTrackSegments();
 // ===================================================================
 // TEMPLE RUN — Sistema de curvas (turn mechanic).
 // ===================================================================
-const float TURN_WINDOW_DIST = 12.0f;  // distância (em unidades) do fim do segmento onde a curva é esperada
+const float TURN_WINDOW_DIST = 7.0f;  // distância (em unidades) do fim do segmento onde a curva é esperada
 bool  g_TurnPending  = false;  // player está na zona de curva
 bool  g_TurnExecuted = false;  // player apertou a tecla correta
 
@@ -422,9 +424,13 @@ float BezierCubic(float t, float p0, float p1, float p2, float p3);
 std::vector<Obstacle> g_Obstacles;
 
 // Geração: espaçamento entre obstáculos/moedas dentro de cada segmento.
-const float OBSTACLE_SPACING  = 10.0f;  // distância entre obstáculos (ao longo do segmento)
+const float OBSTACLE_SPACING  = 12.0f;  // distância entre obstáculos (ao longo do segmento)
 const float OBSTACLE_SCALE    = 2.8f;
 const float OBSTACLE_VISUAL_SCALE = 1.18f;
+const float LOG_SCALE         = 0.032f;
+const float LOG_CORE_WIDTH    = LANE_WIDTH * 2.0f;
+const float LOG_CORE_DEPTH    = 1.25f;
+const float LOG_CORE_HEIGHT   = 0.85f;
 const float FIRST_SEGMENT_SAFE_DISTANCE = PLAYER_SPEED * INTRO_DURATION + 12.0f;
 
 std::vector<Coin> g_Coins;
@@ -478,8 +484,8 @@ GLuint g_PostProcessVAO = 0;
 GLuint g_PostProcessTexture = 0;
 GLint g_PostProcessResolutionUniform;
 GLint g_PostProcessBlurStrengthUniform;
-const GLenum POSTPROCESS_TEXTURE_UNIT = GL_TEXTURE6;
-const GLint POSTPROCESS_TEXTURE_SLOT = 6;
+const GLenum POSTPROCESS_TEXTURE_UNIT = GL_TEXTURE7;
+const GLint POSTPROCESS_TEXTURE_SLOT = 7;
 
 void ResetRun(bool startIntro = true)
 {
@@ -609,6 +615,7 @@ int main(int argc, char* argv[])
     LoadTextureImage("../../data/player.png");               // TextureImage3 (player)
     LoadTextureImage("../../data/enemyTexture.png");          // TextureImage4 (enemy)
     LoadTextureImage("../../data/terrain.png");               // TextureImage5 (água)
+    LoadTextureImage("../../data/treeTexture.png");           // TextureImage6 (tronco)
 
     // ===================================================================
     // TEMPLE RUN — Carregamento dos modelos do jogo.
@@ -647,6 +654,11 @@ int main(int argc, char* argv[])
     ObjModel enemymodel("../../data/enemy.obj");
     ComputeNormals(&enemymodel);
     BuildTrianglesAndAddToVirtualScene(&enemymodel);
+
+    // Carregamos o tronco deitado usado como obstáculo de duas lanes.
+    ObjModel treemodel("../../data/treeTripDownHorz_prefab.obj");
+    ComputeNormals(&treemodel);
+    BuildTrianglesAndAddToVirtualScene(&treemodel);
 
     // ===================================================================
     // TEMPLE RUN — Geração dos segmentos da pista e dos objetos (moedas/obstáculos).
@@ -1132,12 +1144,70 @@ int main(int argc, char* argv[])
             {
                 if (o.segmentIdx != g_CurrentSegment &&
                     !(g_TurnExecuted && o.segmentIdx == g_CurrentSegment + 1)) continue;
-                float visualScale = o.scale * OBSTACLE_VISUAL_SCALE;
-                model = Matrix_Translate(o.worldPos.x, o.worldPos.y, o.worldPos.z)
-                      * Matrix_Scale(visualScale, visualScale, visualScale);
-                glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
-                glUniform1i(g_object_id_uniform, OBJ_SPHERE);
-                DrawVirtualObject("the_sphere2");
+                if (o.type == OBSTACLE_LOG)
+                {
+                    float rotY = GetDirectionAngleY(g_TrackSegments[o.segmentIdx].direction);
+
+                    glUniform1i(g_object_id_uniform, OBJ_TREE_CORE);
+                    glDisable(GL_CULL_FACE);
+
+                    glm::mat4 logBase = Matrix_Translate(o.worldPos.x, o.worldPos.y, o.worldPos.z)
+                                      * Matrix_Rotate_Y(rotY);
+
+                    // Miolo sólido do tronco: evita que o OBJ original, que é
+                    // uma malha fina/vazada, pareça transparente durante o jogo.
+                    model = logBase
+                          * Matrix_Translate(0.0f, LOG_CORE_HEIGHT * 0.5f, 0.0f)
+                          * Matrix_Scale(LOG_CORE_WIDTH * 0.5f, 1.0f, LOG_CORE_DEPTH * 0.5f);
+                    glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+                    DrawVirtualObject("the_plane");
+
+                    model = logBase
+                          * Matrix_Translate(0.0f, 0.0f, LOG_CORE_DEPTH * 0.5f)
+                          * Matrix_Rotate_X(1.5707963f)
+                          * Matrix_Scale(LOG_CORE_WIDTH * 0.5f, 1.0f, LOG_CORE_HEIGHT * 0.5f);
+                    glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+                    DrawVirtualObject("the_plane");
+
+                    model = logBase
+                          * Matrix_Translate(0.0f, 0.0f, -LOG_CORE_DEPTH * 0.5f)
+                          * Matrix_Rotate_X(1.5707963f)
+                          * Matrix_Scale(LOG_CORE_WIDTH * 0.5f, 1.0f, LOG_CORE_HEIGHT * 0.5f);
+                    glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+                    DrawVirtualObject("the_plane");
+
+                    model = logBase
+                          * Matrix_Translate(LOG_CORE_WIDTH * 0.5f, 0.0f, 0.0f)
+                          * Matrix_Rotate_Z(1.5707963f)
+                          * Matrix_Scale(LOG_CORE_HEIGHT * 0.5f, 1.0f, LOG_CORE_DEPTH * 0.5f);
+                    glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+                    DrawVirtualObject("the_plane");
+
+                    model = logBase
+                          * Matrix_Translate(-LOG_CORE_WIDTH * 0.5f, 0.0f, 0.0f)
+                          * Matrix_Rotate_Z(1.5707963f)
+                          * Matrix_Scale(LOG_CORE_HEIGHT * 0.5f, 1.0f, LOG_CORE_DEPTH * 0.5f);
+                    glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+                    DrawVirtualObject("the_plane");
+
+                    model = Matrix_Translate(o.worldPos.x, o.worldPos.y, o.worldPos.z)
+                          * Matrix_Rotate_Y(rotY)
+                          * Matrix_Rotate_Z(1.5707963f)
+                          * Matrix_Scale(o.scale, o.scale, o.scale);
+                    glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+                    glUniform1i(g_object_id_uniform, OBJ_TREE);
+                    DrawVirtualObject("treeTripDownHorz_prefab");
+                    glEnable(GL_CULL_FACE);
+                }
+                else
+                {
+                    float visualScale = o.scale * OBSTACLE_VISUAL_SCALE;
+                    model = Matrix_Translate(o.worldPos.x, o.worldPos.y, o.worldPos.z)
+                          * Matrix_Scale(visualScale, visualScale, visualScale);
+                    glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+                    glUniform1i(g_object_id_uniform, OBJ_SPHERE);
+                    DrawVirtualObject("the_sphere2");
+                }
             }
         }
 
@@ -1404,6 +1474,7 @@ void LoadShadersFromFiles()
     glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage3"), 3);
     glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage4"), 4);
     glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage5"), 5);
+    glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage6"), 6);
     glUseProgram(0);
 }
 
@@ -2322,6 +2393,7 @@ void GenerateTrackSegments()
         // Obstáculos: o primeiro segmento recebe uma folga maior porque o
         // player continua avançando durante a intro antes do controle voltar.
         float obstacleStart = (s == 0) ? FIRST_SEGMENT_SAFE_DISTANCE : 20.0f;
+        int obstacleIndex = 0;
         for (float d = obstacleStart; d < segLength - 10.0f; d += OBSTACLE_SPACING)
         {
             // Não gerar obstáculo em tile de gap
@@ -2329,13 +2401,32 @@ void GenerateTrackSegments()
             if (tileIdx >= 0 && tileIdx < seg.numTiles && seg.gapTiles[tileIdx]) continue;
 
             Obstacle o;
-            o.lane  = (rand() % 3) - 1;
             o.z     = 0.0f;  // legacy field
-            o.scale = OBSTACLE_SCALE;
-            o.worldPos = seg.startPos + fwd * d + rgt * (o.lane * LANE_WIDTH);
-            o.worldPos.y = o.scale / 10.0f;
+            o.type  = (obstacleIndex % 2 == 0) ? OBSTACLE_FIRE : OBSTACLE_LOG;
+            o.worldForward = fwd;
+            o.worldRight = rgt;
             o.segmentIdx = s;
+
+            if (o.type == OBSTACLE_LOG)
+            {
+                // O tronco ocupa duas lanes adjacentes: esquerda+centro ou centro+direita.
+                int firstBlockedLane = (rand() % 2 == 0) ? -1 : 0;
+                float centerLane = firstBlockedLane + 0.5f;
+                o.lane = firstBlockedLane;
+                o.scale = LOG_SCALE;
+                o.worldPos = seg.startPos + fwd * d + rgt * (centerLane * LANE_WIDTH);
+                o.worldPos.y = 0.75f;
+            }
+            else
+            {
+                o.lane  = (rand() % 3) - 1;
+                o.scale = OBSTACLE_SCALE;
+                o.worldPos = seg.startPos + fwd * d + rgt * (o.lane * LANE_WIDTH);
+                o.worldPos.y = o.scale / 10.0f;
+            }
+
             g_Obstacles.push_back(o);
+            obstacleIndex++;
         }
 
         // Moedas: a partir de 7 unidades, espaçadas por COIN_SPACING
