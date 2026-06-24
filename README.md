@@ -14,16 +14,16 @@ Para o desenvolvimento do trabalho foi utilizado inicialmente o Cline com o mode
 
 ## Manual da aplicação
 **Controles**
-Clique em Jogar para iniciar.
-A ou Seta esquerda: mover para a lane da esquerda.
-D ou Seta direita: mover para a lane da direita.
-W ou Seta para cima: pular.
-Nas curvas, Seta esquerda ou Seta direita: virar para o lado indicado pelo caminho.
-C: alternar entre câmera em terceira pessoa e câmera livre.
-Mouse em câmera livre: arrastar para girar a câmera.
-Scroll do mouse: aproximar ou afastar a câmera.
-Esc: fechar a aplicação.
-Durante a partida, a tela mostra moedas coletadas, distância percorrida e recorde da sessão. Ao colidir com fogo, tronco, cair em um buraco ou errar uma curva, o jogo termina e a tela final mostra o desempenho.
+Clique em Jogar para iniciar.<br>
+A ou Seta esquerda: mover para a lane da esquerda.<br>
+D ou Seta direita: mover para a lane da direita.<br>
+W ou Seta para cima: pular.<br>
+Nas curvas, Seta esquerda ou Seta direita: virar para o lado indicado pelo caminho.<br>
+C: alternar entre câmera em terceira pessoa e câmera livre.<br>
+Mouse em câmera livre: arrastar para girar a câmera.<br>
+Scroll do mouse: aproximar ou afastar a câmera.<br>
+Esc: fechar a aplicação.<br>
+Durante a partida, a tela mostra moedas coletadas, distância percorrida e recorde da sessão. Ao colidir com fogo, tronco, cair em um buraco ou errar uma curva, o jogo termina e a tela final mostra o desempenho.<br>
 
 ## Compilação
 O jogo foi desenvolvido em um macbook, para compilar foi necessário apenas rodar o comando: `make -f Makefile.macOS run`
