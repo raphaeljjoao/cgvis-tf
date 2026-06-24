@@ -216,6 +216,7 @@ float g_CameraDistance = 25.0f; // Distância da câmera para o ponto de lookat
 #define OBJ_PLANE  2
 #define OBJ_COIN   3
 #define OBJ_ENEMY  4
+#define OBJ_WATER  5
 
 // Geometria do corredor:
 //   - Cada tile é uma instância do plane.obj (que originalmente é 2x2 no plano XZ),
@@ -229,6 +230,8 @@ const float WALL_THICKNESS    = 1.2f;  // espessura da parede
 const float WALL_MIN_HEIGHT   = 1.5f;  // altura mínima dos segmentos de parede
 const float WALL_MAX_HEIGHT   = 2.5f;  // altura máxima dos segmentos de parede
 const float PLATFORM_DEPTH    = 6.0f;  // profundidade abaixo do chão (visual de ponte/plataforma)
+const float WATER_LEVEL       = -7.0f; // água abaixo da base da plataforma
+const float WATER_SIZE        = 600.0f; // área ampla para esconder as bordas no horizonte
 
 // ===================================================================
 // TEMPLE RUN — Sistema de direções cardinais e curvas 90°.
@@ -421,6 +424,7 @@ std::vector<Obstacle> g_Obstacles;
 // Geração: espaçamento entre obstáculos/moedas dentro de cada segmento.
 const float OBSTACLE_SPACING  = 10.0f;  // distância entre obstáculos (ao longo do segmento)
 const float OBSTACLE_SCALE    = 2.8f;
+const float FIRST_SEGMENT_SAFE_DISTANCE = PLAYER_SPEED * INTRO_DURATION + 12.0f;
 
 std::vector<Coin> g_Coins;
 int g_CoinScore = 0;  // pontuação de moedas coletadas
@@ -473,8 +477,8 @@ GLuint g_PostProcessVAO = 0;
 GLuint g_PostProcessTexture = 0;
 GLint g_PostProcessResolutionUniform;
 GLint g_PostProcessBlurStrengthUniform;
-const GLenum POSTPROCESS_TEXTURE_UNIT = GL_TEXTURE5;
-const GLint POSTPROCESS_TEXTURE_SLOT = 5;
+const GLenum POSTPROCESS_TEXTURE_UNIT = GL_TEXTURE6;
+const GLint POSTPROCESS_TEXTURE_SLOT = 6;
 
 void ResetRun(bool startIntro = true)
 {
@@ -603,6 +607,7 @@ int main(int argc, char* argv[])
     LoadTextureImage("../../data/wallTexture.png");               // TextureImage2 (moedas - do MTL coinYellow)
     LoadTextureImage("../../data/player.png");               // TextureImage3 (player)
     LoadTextureImage("../../data/enemyTexture.png");          // TextureImage4 (enemy)
+    LoadTextureImage("../../data/terrain.png");               // TextureImage5 (água)
 
     // ===================================================================
     // TEMPLE RUN — Carregamento dos modelos do jogo.
@@ -953,8 +958,19 @@ int main(int argc, char* argv[])
                 g_PlayerPos.z + lightOffset.z,
                 1.0f
             );
-            glUniform4f(g_light_position_uniform,
+        glUniform4f(g_light_position_uniform,
                         light_pos.x, light_pos.y, light_pos.z, light_pos.w);
+        }
+
+        // Plano de água sob toda a estrutura. Ele acompanha o jogador apenas
+        // para manter uma área ampla ao redor da câmera; a textura usa
+        // coordenadas de mundo no shader e, por isso, não desliza junto.
+        {
+            model = Matrix_Translate(g_PlayerPos.x, WATER_LEVEL, g_PlayerPos.z)
+                  * Matrix_Scale(WATER_SIZE * 0.5f, 1.0f, WATER_SIZE * 0.5f);
+            glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+            glUniform1i(g_object_id_uniform, OBJ_WATER);
+            DrawVirtualObject("the_plane");
         }
 
         // ===================================================================
@@ -1385,6 +1401,7 @@ void LoadShadersFromFiles()
     glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage2"), 2);
     glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage3"), 3);
     glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage4"), 4);
+    glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage5"), 5);
     glUseProgram(0);
 }
 
@@ -2300,8 +2317,10 @@ void GenerateTrackSegments()
         glm::vec3 rgt = GetRightVec(seg.direction);
         float segLength = seg.numTiles * TRACK_TILE_LENGTH;
 
-        // Obstáculos: a partir de 20 unidades do início (5 tiles livres após curva)
-        for (float d = 20.0f; d < segLength - 10.0f; d += OBSTACLE_SPACING)
+        // Obstáculos: o primeiro segmento recebe uma folga maior porque o
+        // player continua avançando durante a intro antes do controle voltar.
+        float obstacleStart = (s == 0) ? FIRST_SEGMENT_SAFE_DISTANCE : 20.0f;
+        for (float d = obstacleStart; d < segLength - 10.0f; d += OBSTACLE_SPACING)
         {
             // Não gerar obstáculo em tile de gap
             int tileIdx = (int)(d / TRACK_TILE_LENGTH);

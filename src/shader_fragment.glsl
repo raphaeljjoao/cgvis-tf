@@ -24,6 +24,7 @@ uniform mat4 projection;
 #define PLANE  2
 #define COIN   3
 #define ENEMY  4
+#define WATER  5
 uniform int object_id;
 
 // Parâmetros da axis-aligned bounding box (AABB) do modelo
@@ -36,6 +37,7 @@ uniform sampler2D TextureImage1;
 uniform sampler2D TextureImage2;
 uniform sampler2D TextureImage3;
 uniform sampler2D TextureImage4;
+uniform sampler2D TextureImage5;
 
 // Posição (em world space) da luz pontual que segue o player (tipo "tocha").
 // Setada por frame em main.cpp.
@@ -171,6 +173,19 @@ void main()
         Ka = Kd * 0.20;
         Ke = vec3(0.0);
         q  = 32.0;
+    }
+    else if ( object_id == WATER )
+    {
+        // Coordenadas globais mantêm o padrão estável enquanto o plano
+        // acompanha o jogador, além de repetir a textura sem esticá-la.
+        U = position_world.x * 0.035;
+        V = position_world.z * 0.035;
+
+        Kd = texture(TextureImage5, vec2(U,V)).rgb;
+        Ks = vec3(0.45, 0.60, 0.55);
+        Ka = Kd * 0.35;
+        Ke = Kd * 0.05;
+        q  = 48.0;
     }
     else
     {
