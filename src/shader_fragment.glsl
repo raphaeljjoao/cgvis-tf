@@ -119,10 +119,10 @@ void main()
         V = (phi   + M_PI_2) / M_PI;
 
         Kd = texture(TextureImage0, vec2(U,V)).rgb;
-        Ks = vec3(0.5, 0.5, 0.5);   // obstáculo: bem reflexivo
-        Ka = Kd * 0.15;
-        Ke = vec3(0.0);
-        q  = 64.0;
+        Ks = vec3(0.75, 0.42, 0.12);
+        Ka = Kd * 0.25;
+        Ke = Kd * 0.95 + vec3(0.75, 0.28, 0.04);
+        q  = 96.0;
     }
     else if ( object_id == BUNNY )
     {

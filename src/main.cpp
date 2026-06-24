@@ -424,6 +424,7 @@ std::vector<Obstacle> g_Obstacles;
 // Geração: espaçamento entre obstáculos/moedas dentro de cada segmento.
 const float OBSTACLE_SPACING  = 10.0f;  // distância entre obstáculos (ao longo do segmento)
 const float OBSTACLE_SCALE    = 2.8f;
+const float OBSTACLE_VISUAL_SCALE = 1.18f;
 const float FIRST_SEGMENT_SAFE_DISTANCE = PLAYER_SPEED * INTRO_DURATION + 12.0f;
 
 std::vector<Coin> g_Coins;
@@ -1131,8 +1132,9 @@ int main(int argc, char* argv[])
             {
                 if (o.segmentIdx != g_CurrentSegment &&
                     !(g_TurnExecuted && o.segmentIdx == g_CurrentSegment + 1)) continue;
+                float visualScale = o.scale * OBSTACLE_VISUAL_SCALE;
                 model = Matrix_Translate(o.worldPos.x, o.worldPos.y, o.worldPos.z)
-                      * Matrix_Scale(o.scale, o.scale, o.scale);
+                      * Matrix_Scale(visualScale, visualScale, visualScale);
                 glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
                 glUniform1i(g_object_id_uniform, OBJ_SPHERE);
                 DrawVirtualObject("the_sphere2");
