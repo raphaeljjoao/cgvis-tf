@@ -1025,6 +1025,21 @@ int main(int argc, char* argv[])
                     DrawVirtualObject("the_plane");
                 }
             }
+
+            // Peça de junção nas curvas: cobre o encontro entre dois segmentos
+            // para que a próxima rota não pareça começar "no meio" da pista.
+            for (int si = segStart; si < segEnd - 1; ++si)
+            {
+                const TrackSegment& seg = g_TrackSegments[si];
+                glm::vec3 segFwd = GetForwardVec(seg.direction);
+                glm::vec3 jointPos = seg.startPos + segFwd * (seg.numTiles * TRACK_TILE_LENGTH);
+
+                model = Matrix_Translate(jointPos.x, 0.01f, jointPos.z)
+                      * Matrix_Scale(TRACK_TILE_WIDTH * 0.5f, 1.0f, TRACK_TILE_WIDTH * 0.5f);
+                glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+                glUniform1i(g_object_id_uniform, OBJ_PLANE);
+                DrawVirtualObject("the_plane");
+            }
         }
 
         // Fecha a plataforma por baixo e nas extremidades expostas, usando a
