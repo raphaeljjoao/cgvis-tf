@@ -99,3 +99,8 @@ das mensagens de commit no histórico do Git.
 
 **PROMPT:** "tem como fazer uma contagem de metros e no final mostrar qual foi o recorde da sessão?"
 **COMMIT:** `46573e1`
+
+## Arrumar bug nas curvas
+
+**PROMPT:** "quando está na parte de virar para uma nova rota, o chão começa no meio do caminho e parece q tem uma lane faltando"
+**COMMIT:** `4a0817c8c71d0167a0e206d7c7e5e82fe194d141`
