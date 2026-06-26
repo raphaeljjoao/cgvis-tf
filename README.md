@@ -10,7 +10,9 @@ Para o desenvolvimento do trabalho foi utilizado inicialmente o Cline com o mode
 
 ## Imagens do jogo
 
-<adicionar>
+![Imagem do jogo 1](fototemple1.png)
+
+![Imagem do jogo 2](fototemple2.png)
 
 ## Manual da aplicação
 **Controles**
